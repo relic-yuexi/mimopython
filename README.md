@@ -150,6 +150,17 @@ for i in range(5):
     print(i)     # 0 1 3 4
 ```
 
+### Modules / 模块导入
+```python
+# Import entire module (all names merged into namespace)
+import mymath
+print(square(5))    # uses mymath.square
+
+# Import specific name
+from mymath import square
+print(square(7))    # 49
+```
+
 ---
 
 ## Project Structure / 项目结构

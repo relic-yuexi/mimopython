@@ -367,7 +367,7 @@ This project was built as a demonstration of **agentic AI-assisted development**
 
 **工作流程**：人类编写规范 → AI 模型生成代码 → 人类审查 → AI 迭代。
 
-- **AI Model**: [MiMo V2.5](https://platform.xiaomimimo.com?ref=B5TRBQ) — Xiaomi's open-weight language model
+- **AI Model**: [MiMo V2.5 Pro](https://platform.xiaomimimo.com?ref=B5TRBQ) — Xiaomi's open-weight language model
 - **Coding Agent**: [Claude Code](https://claude.ai/code) — Anthropic's CLI-based coding assistant
 - **Total cost**: $0.0530 | **Total time**: 41 minutes | **Tests**: 119/119 passing
 

@@ -411,13 +411,20 @@ time python3 test_programs/bench_fib.py
 
 | Test | CPython 3.12 | mimopython (Release) | Ratio |
 |------|-------------|---------------------|-------|
-| fib(25) | 0.041s | 0.074s | **1.8x** |
-| fib(30) | 0.117s | 0.505s | **4.3x** |
-| loop 1M | 0.081s | 0.066s | **0.8x (faster!)** |
+| fib(25) | 6.86 ± 0.21ms | 41.42 ± 0.70ms | 6.0x |
+| fib(30) | 77.1 ± 2.65ms | 1160 ± 427ms | 15.1x |
+| factorial(100) | 0.03 ± 0.01ms | 0.10 ± 0.05ms | 3.3x |
+| ackermann(3,6) | 13.3 ± 0.48ms | 118.5 ± 16.5ms | 8.9x |
+| primes<500 | 0.15 ± 0.01ms | 0.73 ± 0.31ms | 4.9x |
+| loop 1M | 47.4 ± 1.64ms | 114.3 ± 12.2ms | 2.4x |
+| while 2M | 151.0 ± 53.7ms | 259.0 ± 26.3ms | 1.7x |
+| nested 100x100 | 1.67 ± 0.17ms | 1.01 ± 0.36ms | **0.6x** |
+| string concat | 0.16 ± 0.09ms | 0.26 ± 0.20ms | 1.6x |
 
-After 4 rounds of optimization (Release build with -O3), mimopython is within 2-4x of CPython for recursion and matches it for loops. See [CHANGELOG.md](CHANGELOG.md) for the full optimization journey including the critical "Debug vs Release" discovery.
+> 10 runs per test, mean ± std. Release build with `-O3`.
+> See [CHANGELOG.md](CHANGELOG.md) for the full optimization journey.
 
-经过 4 轮优化（Release 构建 -O3），mimopython 在递归场景下约为 CPython 的 2-4 倍，循环场景几乎持平。详见 [CHANGELOG.md](CHANGELOG.md)。
+经过 4 轮优化后（Release -O3），mimopython 在大多数场景下为 CPython 的 2-15 倍，部分场景持平甚至更快。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 

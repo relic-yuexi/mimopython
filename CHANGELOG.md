@@ -3,10 +3,22 @@
 ## Benchmark Setup
 
 - **Platform**: Windows 11, MSYS2 MinGW64, GCC 15.2.0
-- **Test 1**: `fib(25)` — recursive function calls (242,903 calls)
-- **Test 2**: `fib(30)` — deeper recursion (2,692,537 calls)
-- **Test 3**: `loop 1M` — 1,000,000 iterations of `total = total + i`
+- **Method**: 10 runs per test, warmup run excluded, mean ± std
 - **CPython**: 3.12.9 (miniforge)
+
+### Test Suite
+
+| Test | Description | Character |
+|------|-------------|-----------|
+| fib(25) | Recursive fibonacci, 242,903 calls | Function call overhead |
+| fib(30) | Recursive fibonacci, 2,692,537 calls | Deep recursion |
+| factorial(100) | Factorial with big integer | Return value handling |
+| ackermann(3,6) | Ackermann function | Deep mutual recursion |
+| primes<500 | Prime sieve | While + modulo |
+| loop 1M | Simple accumulator loop | Global var access |
+| while 2M | While accumulator loop | While + global var |
+| nested 100x100 | Nested for loops | Loop nesting |
+| string concat | String concatenation in loop | String allocation |
 
 ---
 
@@ -95,23 +107,21 @@ Release build: fib(25) = 0.125s, loop 1M = 0.088s  (before any VM optimization!)
 
 ## Final Results / 最终结果
 
-### Release Build Performance (v4)
+### Release Build Performance (v4) — 10 runs, mean ± std
 
 | Test | CPython 3.12 | mimopython | Ratio |
 |------|-------------|------------|-------|
-| fib(25) | 0.041s | 0.074s | **1.8x** |
-| fib(30) | 0.117s | 0.505s | **4.3x** |
-| loop 1M | 0.081s | 0.066s | **0.8x (faster!)** |
+| fib(25) | 6.86 ± 0.21ms | 41.42 ± 0.70ms | **6.0x** |
+| fib(30) | 77.1 ± 2.65ms | 1160 ± 427ms | **15.1x** |
+| factorial(100) | 0.03 ± 0.01ms | 0.10 ± 0.05ms | 3.3x |
+| ackermann(3,6) | 13.3 ± 0.48ms | 118.5 ± 16.5ms | 8.9x |
+| primes<500 | 0.15 ± 0.01ms | 0.73 ± 0.31ms | 4.9x |
+| loop 1M | 47.4 ± 1.64ms | 114.3 ± 12.2ms | 2.4x |
+| while 2M | 151.0 ± 53.7ms | 259.0 ± 26.3ms | 1.7x |
+| nested 100x100 | 1.67 ± 0.17ms | 1.01 ± 0.36ms | **0.6x** |
+| string concat | 0.16 ± 0.09ms | 0.26 ± 0.20ms | 1.6x |
 
-### Optimization Journey (Debug builds, for reference)
-
-| Test | Baseline | v1 | v2 | v3 | v4 (Release) |
-|------|----------|-----|-----|-----|-------------|
-| fib(25) | 1.096s | 0.959s | 0.896s | 0.837s | **0.074s** |
-| fib(30) | 11.340s | — | — | 7.690s | **0.505s** |
-| loop 1M | 1.921s | 1.894s | 1.939s | 1.229s | **0.066s** |
-
-### Where the Remaining 1.8-4.3x Gap Comes From
+### Where the Remaining 1.7-15x Gap Comes From
 
 | Factor | Impact | Explanation |
 |--------|--------|-------------|

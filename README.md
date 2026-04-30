@@ -409,15 +409,15 @@ time ./build/mimopython test_programs/bench_fib.py
 time python3 test_programs/bench_fib.py
 ```
 
-| Test | CPython 3.12 | mimopython | Ratio |
-|------|-------------|------------|-------|
-| fib(25) | 0.041s | 0.673s | 16.4x |
-| fib(30) | 0.109s | 7.690s | 70.5x |
-| loop 1M | 0.081s | 1.229s | 15.2x |
+| Test | CPython 3.12 | mimopython (Release) | Ratio |
+|------|-------------|---------------------|-------|
+| fib(25) | 0.041s | 0.074s | **1.8x** |
+| fib(30) | 0.117s | 0.505s | **4.3x** |
+| loop 1M | 0.081s | 0.066s | **0.8x (faster!)** |
 
-After 3 rounds of optimization, mimopython is ~16x slower than CPython for function-heavy workloads and ~15x slower for loop-heavy workloads. See [CHANGELOG.md](CHANGELOG.md) for optimization details.
+After 4 rounds of optimization (Release build with -O3), mimopython is within 2-4x of CPython for recursion and matches it for loops. See [CHANGELOG.md](CHANGELOG.md) for the full optimization journey including the critical "Debug vs Release" discovery.
 
-经过 3 轮优化后，mimopython 在函数密集型工作负载下约为 CPython 的 1/16，循环密集型约为 1/15。详见 [CHANGELOG.md](CHANGELOG.md)。
+经过 4 轮优化（Release 构建 -O3），mimopython 在递归场景下约为 CPython 的 2-4 倍，循环场景几乎持平。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 

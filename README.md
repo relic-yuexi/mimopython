@@ -409,14 +409,15 @@ time ./build/mimopython test_programs/bench_fib.py
 time python3 test_programs/bench_fib.py
 ```
 
-| Implementation | fib(30) | Notes |
-|----------------|---------|-------|
-| CPython 3.12 | 0.122s | Production interpreter, bytecode + eval loop |
-| mimopython | 11.34s | Hand-written compiler + VM, no optimization pass |
+| Test | CPython 3.12 | mimopython | Ratio |
+|------|-------------|------------|-------|
+| fib(25) | 0.041s | 0.673s | 16.4x |
+| fib(30) | 0.109s | 7.690s | 70.5x |
+| loop 1M | 0.081s | 1.229s | 15.2x |
 
-mimopython is ~93x slower than CPython for deep recursion. This is expected: the VM has no optimization passes, no constant folding, and each function call saves/restores full VM state. The gap narrows significantly for compute-bound loops (where function call overhead is amortized).
+After 3 rounds of optimization, mimopython is ~16x slower than CPython for function-heavy workloads and ~15x slower for loop-heavy workloads. See [CHANGELOG.md](CHANGELOG.md) for optimization details.
 
-mimopython 在深度递归场景下约为 CPython 的 1/93。这是预期之内的：VM 无优化 pass、无常量折叠、每次函数调用都保存/恢复完整 VM 状态。在计算密集型循环中差距会显著缩小。
+经过 3 轮优化后，mimopython 在函数密集型工作负载下约为 CPython 的 1/16，循环密集型约为 1/15。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 

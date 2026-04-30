@@ -1,55 +1,23 @@
 /**
  * @file vm.cpp
- * @brief Stack-based virtual machine - optimized with unified stack.
+ * @brief Stack-based virtual machine - optimized hot path.
  *
- * Function calls use the same stack (no save/restore). This eliminates
- * the dominant overhead in recursive workloads.
+ * Key optimizations:
+ * - Unified stack (no save/restore per call)
+ * - Indexed local/global variable access
+ * - Inlined hot instructions
+ * - Reduced function call overhead in dispatch loop
  */
 #include "vm.h"
 #include "compiler.h"
 #include <sstream>
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 
 namespace mimo {
 
 Vm::Vm() = default;
-
-CallFrame& Vm::current_frame() {
-    return frames_.back();
-}
-
-PyValue& Vm::top() {
-    if (stack_.empty()) throw RuntimeError("VM: stack underflow", pc_);
-    return stack_.back();
-}
-
-PyValue Vm::pop() {
-    if (stack_.empty()) throw RuntimeError("VM: stack underflow", pc_);
-    PyValue val = std::move(stack_.back());
-    stack_.pop_back();
-    return val;
-}
-
-void Vm::push(PyValue val) {
-    stack_.push_back(std::move(val));
-}
-
-PyValue Vm::load_var(uint32_t name_idx) {
-    const std::string& name = code_->names[name_idx];
-    // Search frames from most recent to oldest
-    for (auto it = frames_.rbegin(); it != frames_.rend(); ++it) {
-        auto found = it->locals.find(name);
-        if (found != it->locals.end()) return found->second;
-    }
-    throw RuntimeError("NameError: name '" + name + "' is not defined", pc_);
-}
-
-void Vm::store_var(uint32_t name_idx, PyValue val) {
-    const std::string& name = code_->names[name_idx];
-    // Store in current frame
-    frames_.back().locals[name] = std::move(val);
-}
 
 void Vm::execute(const CompiledCode& code) {
     code_ = &code;
@@ -63,37 +31,40 @@ void Vm::execute(const CompiledCode& code) {
 }
 
 void Vm::run() {
-    const auto& instrs = code_->instructions;
-    const auto& consts = code_->constants;
-    const auto& names = code_->names;
+    const auto* __restrict instrs = code_->instructions.data();
+    const auto* __restrict consts = code_->constants.data();
+    const auto* __restrict names = code_->names.data();
+    const uint32_t num_instrs = static_cast<uint32_t>(code_->instructions.size());
+    const uint32_t num_names = static_cast<uint32_t>(code_->names.size());
 
-    while (pc_ < instrs.size()) {
+    // Cache frequently accessed frame
+    CallFrame* frame = &frames_.back();
+
+    while (pc_ < num_instrs) {
         const auto& instr = instrs[pc_];
         pc_++;
 
         switch (instr.op) {
             case OpCode::LOAD_CONST:
-                push(consts[instr.operand]);
+                stack_.push_back(consts[instr.operand]);
                 break;
 
             case OpCode::LOAD_NAME: {
                 if (instr.operand < globals_.size()) {
-                    push(globals_[instr.operand]);
+                    stack_.push_back(globals_[instr.operand]);
+                } else if (instr.operand < num_names && names[instr.operand] == std::string_view("range")) {
+                    auto fn = std::make_shared<PyFunction>();
+                    fn->name = "range";
+                    stack_.push_back(PyValue(fn));
                 } else {
-                    const std::string& name = names[instr.operand];
-                    if (name == "range") {
-                        auto fn = std::make_shared<PyFunction>();
-                        fn->name = "range";
-                        push(PyValue(fn));
-                    } else {
-                        throw RuntimeError("NameError: name '" + name + "' is not defined", pc_);
-                    }
+                    throw RuntimeError("NameError: name '" + std::string(names[instr.operand]) + "' is not defined", pc_);
                 }
                 break;
             }
 
             case OpCode::STORE_NAME: {
-                PyValue val = pop();
+                PyValue val = std::move(stack_.back());
+                stack_.pop_back();
                 if (instr.operand >= globals_.size()) {
                     globals_.resize(instr.operand + 1);
                 }
@@ -102,9 +73,8 @@ void Vm::run() {
             }
 
             case OpCode::LOAD_FAST: {
-                auto& frame = frames_.back();
-                if (instr.operand < frame.fast_locals.size()) {
-                    push(frame.fast_locals[instr.operand]);
+                if (instr.operand < frame->fast_locals.size()) {
+                    stack_.push_back(frame->fast_locals[instr.operand]);
                 } else {
                     throw RuntimeError("VM: invalid local slot", pc_);
                 }
@@ -112,10 +82,10 @@ void Vm::run() {
             }
 
             case OpCode::STORE_FAST: {
-                PyValue val = pop();
-                auto& frame = frames_.back();
-                if (instr.operand < frame.fast_locals.size()) {
-                    frame.fast_locals[instr.operand] = std::move(val);
+                PyValue val = std::move(stack_.back());
+                stack_.pop_back();
+                if (instr.operand < frame->fast_locals.size()) {
+                    frame->fast_locals[instr.operand] = std::move(val);
                 } else {
                     throw RuntimeError("VM: invalid local slot", pc_);
                 }
@@ -123,111 +93,188 @@ void Vm::run() {
             }
 
             case OpCode::POP_TOP:
-                pop();
+                stack_.pop_back();
                 break;
 
             case OpCode::DUP_TOP:
-                push(top());
+                stack_.push_back(stack_.back());
                 break;
 
+            // Hot path: integer arithmetic (most common case)
             case OpCode::BINARY_ADD: {
-                PyValue rhs = pop();
-                PyValue lhs = pop();
-                push(lhs + rhs);
+                PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+                PyValue& lhs = stack_.back();
+                if ((lhs.type() == PyValue::Type::INT || lhs.type() == PyValue::Type::BOOL) &&
+                    (rhs.type() == PyValue::Type::INT || rhs.type() == PyValue::Type::BOOL)) {
+                    lhs = PyValue(lhs.to_int() + rhs.to_int());
+                } else if (lhs.is_numeric() && rhs.is_numeric()) {
+                    lhs = PyValue(lhs.to_float() + rhs.to_float());
+                } else if (lhs.type() == PyValue::Type::STRING || rhs.type() == PyValue::Type::STRING) {
+                    lhs = PyValue(lhs.to_string() + rhs.to_string());
+                } else {
+                    throw RuntimeError("TypeError: unsupported operand types for +", pc_);
+                }
                 break;
             }
 
             case OpCode::BINARY_SUB: {
-                PyValue rhs = pop();
-                PyValue lhs = pop();
-                push(lhs - rhs);
+                PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+                PyValue& lhs = stack_.back();
+                if (lhs.type() == PyValue::Type::INT && rhs.type() == PyValue::Type::INT) {
+                    lhs = PyValue(lhs.as_int() - rhs.as_int());
+                } else if (lhs.is_numeric() && rhs.is_numeric()) {
+                    lhs = PyValue(lhs.to_float() - rhs.to_float());
+                } else {
+                    throw RuntimeError("TypeError: unsupported operand types for -", pc_);
+                }
                 break;
             }
 
             case OpCode::BINARY_MUL: {
-                PyValue rhs = pop();
-                PyValue lhs = pop();
-                push(lhs * rhs);
+                PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+                PyValue& lhs = stack_.back();
+                if (lhs.type() == PyValue::Type::INT && rhs.type() == PyValue::Type::INT) {
+                    lhs = PyValue(lhs.as_int() * rhs.as_int());
+                } else if (lhs.is_numeric() && rhs.is_numeric()) {
+                    lhs = PyValue(lhs.to_float() * rhs.to_float());
+                } else if (lhs.type() == PyValue::Type::STRING && rhs.type() == PyValue::Type::INT) {
+                    std::string result;
+                    int64_t n = rhs.as_int();
+                    const std::string& s = lhs.as_string();
+                    for (int64_t i = 0; i < n; ++i) result += s;
+                    lhs = PyValue(std::move(result));
+                } else {
+                    throw RuntimeError("TypeError: unsupported operand types for *", pc_);
+                }
                 break;
             }
 
             case OpCode::BINARY_FLOOR_DIV: {
-                PyValue rhs = pop();
-                PyValue lhs = pop();
-                push(lhs.floor_div(rhs));
+                PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+                PyValue& lhs = stack_.back();
+                if (lhs.type() == PyValue::Type::INT && rhs.type() == PyValue::Type::INT) {
+                    if (rhs.as_int() == 0) throw RuntimeError("ZeroDivisionError: division by zero", pc_);
+                    lhs = PyValue(lhs.as_int() / rhs.as_int());
+                } else if (lhs.is_numeric() && rhs.is_numeric()) {
+                    double r = rhs.to_float();
+                    if (r == 0.0) throw RuntimeError("ZeroDivisionError: division by zero", pc_);
+                    lhs = PyValue(std::floor(lhs.to_float() / r));
+                } else {
+                    throw RuntimeError("TypeError: unsupported operand types for //", pc_);
+                }
                 break;
             }
 
             case OpCode::BINARY_MOD: {
-                PyValue rhs = pop();
-                PyValue lhs = pop();
-                push(lhs.mod(rhs));
+                PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+                PyValue& lhs = stack_.back();
+                if (lhs.type() == PyValue::Type::INT && rhs.type() == PyValue::Type::INT) {
+                    if (rhs.as_int() == 0) throw RuntimeError("ZeroDivisionError: modulo by zero", pc_);
+                    lhs = PyValue(lhs.as_int() % rhs.as_int());
+                } else if (lhs.is_numeric() && rhs.is_numeric()) {
+                    double r = rhs.to_float();
+                    if (r == 0.0) throw RuntimeError("ZeroDivisionError: modulo by zero", pc_);
+                    lhs = PyValue(std::fmod(lhs.to_float(), r));
+                } else {
+                    throw RuntimeError("TypeError: unsupported operand types for %", pc_);
+                }
                 break;
             }
 
             case OpCode::UNARY_NEG: {
-                PyValue val = pop();
-                push(val.unary_neg());
+                PyValue& val = stack_.back();
+                if (val.type() == PyValue::Type::INT) {
+                    val = PyValue(-val.as_int());
+                } else if (val.type() == PyValue::Type::FLOAT) {
+                    val = PyValue(-val.as_float());
+                } else {
+                    throw RuntimeError("TypeError: bad operand type for unary -", pc_);
+                }
                 break;
             }
 
             case OpCode::UNARY_NOT: {
-                PyValue val = pop();
-                push(val.logical_not());
+                PyValue& val = stack_.back();
+                val = PyValue(!val.truthy());
                 break;
             }
 
-            case OpCode::COMPARE_EQ: {
-                PyValue rhs = pop();
-                PyValue lhs = pop();
-                push(PyValue(lhs == rhs));
-                break;
-            }
-
-            case OpCode::COMPARE_NEQ: {
-                PyValue rhs = pop();
-                PyValue lhs = pop();
-                push(PyValue(lhs != rhs));
-                break;
-            }
-
+            // Hot path: integer comparison
             case OpCode::COMPARE_LT: {
-                PyValue rhs = pop();
-                PyValue lhs = pop();
-                push(PyValue(lhs < rhs));
+                PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+                PyValue& lhs = stack_.back();
+                if (lhs.type() == PyValue::Type::INT && rhs.type() == PyValue::Type::INT) {
+                    lhs = PyValue(lhs.as_int() < rhs.as_int());
+                } else if (lhs.is_numeric() && rhs.is_numeric()) {
+                    lhs = PyValue(lhs.to_float() < rhs.to_float());
+                } else if (lhs.type() == PyValue::Type::STRING && rhs.type() == PyValue::Type::STRING) {
+                    lhs = PyValue(lhs.as_string() < rhs.as_string());
+                } else {
+                    throw RuntimeError("TypeError: unsupported comparison", pc_);
+                }
                 break;
             }
 
             case OpCode::COMPARE_GT: {
-                PyValue rhs = pop();
-                PyValue lhs = pop();
-                push(PyValue(lhs > rhs));
+                PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+                PyValue& lhs = stack_.back();
+                if (lhs.type() == PyValue::Type::INT && rhs.type() == PyValue::Type::INT) {
+                    lhs = PyValue(lhs.as_int() > rhs.as_int());
+                } else if (lhs.is_numeric() && rhs.is_numeric()) {
+                    lhs = PyValue(lhs.to_float() > rhs.to_float());
+                } else {
+                    lhs = PyValue(lhs > rhs);
+                }
+                break;
+            }
+
+            case OpCode::COMPARE_EQ: {
+                PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+                PyValue& lhs = stack_.back();
+                if (lhs.type() == PyValue::Type::INT && rhs.type() == PyValue::Type::INT) {
+                    lhs = PyValue(lhs.as_int() == rhs.as_int());
+                } else {
+                    lhs = PyValue(lhs == rhs);
+                }
+                break;
+            }
+
+            case OpCode::COMPARE_NEQ: {
+                PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+                PyValue& lhs = stack_.back();
+                lhs = PyValue(lhs != rhs);
                 break;
             }
 
             case OpCode::COMPARE_LTE: {
-                PyValue rhs = pop();
-                PyValue lhs = pop();
-                push(PyValue(lhs <= rhs));
+                PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+                PyValue& lhs = stack_.back();
+                if (lhs.type() == PyValue::Type::INT && rhs.type() == PyValue::Type::INT) {
+                    lhs = PyValue(lhs.as_int() <= rhs.as_int());
+                } else if (lhs.is_numeric() && rhs.is_numeric()) {
+                    lhs = PyValue(lhs.to_float() <= rhs.to_float());
+                } else {
+                    lhs = PyValue(lhs <= rhs);
+                }
                 break;
             }
 
             case OpCode::COMPARE_GTE: {
-                PyValue rhs = pop();
-                PyValue lhs = pop();
-                push(PyValue(lhs >= rhs));
+                PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+                PyValue& lhs = stack_.back();
+                lhs = PyValue(lhs >= rhs);
                 break;
             }
 
             case OpCode::JUMP_IF_FALSE: {
-                if (!top().truthy()) {
+                if (!stack_.back().truthy()) {
                     pc_ = instr.operand;
                 }
                 break;
             }
 
             case OpCode::JUMP_IF_TRUE: {
-                if (top().truthy()) {
+                if (stack_.back().truthy()) {
                     pc_ = instr.operand;
                 }
                 break;
@@ -240,7 +287,7 @@ void Vm::run() {
             case OpCode::CALL_FUNCTION: {
                 uint32_t num_args = instr.operand;
 
-                PyValue func_val = pop();
+                PyValue func_val = std::move(stack_.back()); stack_.pop_back();
                 if (func_val.type() != PyValue::Type::FUNCTION) {
                     throw RuntimeError("TypeError: object is not callable", pc_);
                 }
@@ -250,45 +297,44 @@ void Vm::run() {
                 // Pop arguments
                 std::vector<PyValue> args(num_args);
                 for (int i = static_cast<int>(num_args) - 1; i >= 0; --i) {
-                    args[i] = pop();
+                    args[i] = std::move(stack_.back()); stack_.pop_back();
                 }
 
                 // Push new call frame
-                CallFrame frame;
-                frame.return_address = pc_;
+                CallFrame new_frame;
+                new_frame.return_address = pc_;
 
-                // Set up fast locals from function's slot names
+                // Set up fast locals
                 if (!func->local_slot_names.empty()) {
-                    frame.fast_locals.resize(func->local_slot_names.size(), PyValue::none());
-                    frame.local_slots.reserve(func->local_slot_names.size());
+                    new_frame.fast_locals.resize(func->local_slot_names.size(), PyValue::none());
+                    new_frame.local_slots.reserve(func->local_slot_names.size());
                     for (size_t i = 0; i < func->local_slot_names.size(); ++i) {
-                        frame.local_slots[func->local_slot_names[i]] = static_cast<uint32_t>(i);
+                        new_frame.local_slots[func->local_slot_names[i]] = static_cast<uint32_t>(i);
                     }
                 }
 
-                // Bind parameters (params are the first slots)
-                for (size_t i = 0; i < func->params.size(); ++i) {
-                    if (i < args.size()) {
-                        if (i < frame.fast_locals.size()) {
-                            frame.fast_locals[i] = std::move(args[i]);
-                        }
-                        frame.locals[func->params[i]] = frame.fast_locals[i];
+                // Bind parameters
+                for (size_t i = 0; i < func->params.size() && i < args.size(); ++i) {
+                    if (i < new_frame.fast_locals.size()) {
+                        new_frame.fast_locals[i] = std::move(args[i]);
                     }
                 }
 
-                frames_.push_back(std::move(frame));
+                frames_.push_back(std::move(new_frame));
+                frame = &frames_.back();
                 pc_ = func->entry_point;
                 break;
             }
 
             case OpCode::RETURN_VALUE: {
-                PyValue result = pop();
+                PyValue result = std::move(stack_.back()); stack_.pop_back();
                 if (frames_.size() > 1) {
                     uint32_t ret_addr = frames_.back().return_address;
                     frames_.pop_back();
+                    frame = &frames_.back();
                     pc_ = ret_addr;
                 }
-                push(std::move(result));
+                stack_.push_back(std::move(result));
                 break;
             }
 
@@ -296,7 +342,7 @@ void Vm::run() {
                 uint32_t num_args = instr.operand;
                 std::vector<PyValue> args(num_args);
                 for (int i = static_cast<int>(num_args) - 1; i >= 0; --i) {
-                    args[i] = pop();
+                    args[i] = std::move(stack_.back()); stack_.pop_back();
                 }
                 std::ostringstream oss;
                 for (uint32_t i = 0; i < args.size(); ++i) {
@@ -315,16 +361,8 @@ void Vm::run() {
             case OpCode::GET_ITER:
             case OpCode::SETUP_LOOP:
             case OpCode::POP_BLOCK:
-                break;
-
             case OpCode::BREAK_LOOP:
-                if (frames_.empty()) throw RuntimeError("SyntaxError: 'break' outside loop", pc_);
-                break;
-
             case OpCode::CONTINUE_LOOP:
-                if (frames_.empty()) throw RuntimeError("SyntaxError: 'continue' outside loop", pc_);
-                break;
-
             case OpCode::NOP:
                 break;
 

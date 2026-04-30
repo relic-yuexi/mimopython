@@ -82,6 +82,8 @@ void Parser::synchronize() {
             case TokenType::PRINT:
             case TokenType::BREAK:
             case TokenType::CONTINUE:
+            case TokenType::IMPORT:
+            case TokenType::FROM:
                 return;
             default:
                 advance();
@@ -126,6 +128,8 @@ StmtPtr Parser::parse_statement() {
     if (check(TokenType::BREAK)) { auto l = peek().line; advance(); return std::make_unique<BreakStmt>(l); }
     if (check(TokenType::CONTINUE)) { auto l = peek().line; advance(); return std::make_unique<ContinueStmt>(l); }
     if (check(TokenType::PASS)) { auto l = peek().line; advance(); return std::make_unique<PassStmt>(l); }
+    if (check(TokenType::IMPORT)) return parse_import();
+    if (check(TokenType::FROM)) return parse_from_import();
 
     return parse_assignment_or_expr();
 }
@@ -255,6 +259,26 @@ StmtPtr Parser::parse_print() {
     }
     expect(TokenType::RPAREN, "expected ')'");
     return std::make_unique<PrintStmt>(std::move(args), ln);
+}
+
+StmtPtr Parser::parse_import() {
+    auto ln = peek().line;
+    advance(); // consume 'import'
+    auto& mod = expect(TokenType::IDENTIFIER, "expected module name");
+    std::string alias;
+    if (match(TokenType::AS)) {
+        alias = expect(TokenType::IDENTIFIER, "expected alias name").value;
+    }
+    return std::make_unique<ImportStmt>(mod.value, std::move(alias), ln);
+}
+
+StmtPtr Parser::parse_from_import() {
+    auto ln = peek().line;
+    advance(); // consume 'from'
+    auto& mod = expect(TokenType::IDENTIFIER, "expected module name");
+    expect(TokenType::IMPORT, "expected 'import'");
+    auto& name = expect(TokenType::IDENTIFIER, "expected name to import");
+    return std::make_unique<FromImportStmt>(mod.value, name.value, ln);
 }
 
 // --- Expression parsing (precedence climbing) ---

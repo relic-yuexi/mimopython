@@ -26,5 +26,7 @@ void FuncDef::accept(AstVisitor& v) { v.visit(*this); }
 void BreakStmt::accept(AstVisitor& v) { v.visit(*this); }
 void ContinueStmt::accept(AstVisitor& v) { v.visit(*this); }
 void PassStmt::accept(AstVisitor& v) { v.visit(*this); }
+void ImportStmt::accept(AstVisitor& v) { v.visit(*this); }
+void FromImportStmt::accept(AstVisitor& v) { v.visit(*this); }
 
 } // namespace mimo

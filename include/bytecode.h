@@ -47,6 +47,7 @@ enum class OpCode : uint8_t {
 
     PRINT,            // operand: number of arguments
     MAKE_FUNCTION,    // operand: index into names pool (function name)
+    IMPORT_NAME,      // operand: index into names pool (module name)
 
     FOR_ITER,         // operand: jump past end of loop
     GET_ITER,         // convert top of stack to iterator
@@ -98,6 +99,7 @@ inline const char* opcode_name(OpCode op) {
         case OpCode::RETURN_VALUE:     return "RETURN_VALUE";
         case OpCode::PRINT:            return "PRINT";
         case OpCode::MAKE_FUNCTION:    return "MAKE_FUNCTION";
+        case OpCode::IMPORT_NAME:      return "IMPORT_NAME";
         case OpCode::FOR_ITER:         return "FOR_ITER";
         case OpCode::GET_ITER:         return "GET_ITER";
         case OpCode::SETUP_LOOP:       return "SETUP_LOOP";

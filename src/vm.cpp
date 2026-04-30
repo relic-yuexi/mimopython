@@ -9,17 +9,21 @@
  * - Reduced function call overhead in dispatch loop
  */
 #include "vm.h"
+#include "lexer.h"
+#include "parser.h"
 #include "compiler.h"
 #include <sstream>
+#include <fstream>
 #include <iostream>
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 
 namespace mimo {
 
 Vm::Vm() = default;
 
-void Vm::execute(const CompiledCode& code) {
+void Vm::execute(CompiledCode& code) {
     code_ = &code;
     frames_.clear();
     frames_.push_back(CallFrame{});
@@ -33,9 +37,9 @@ void Vm::execute(const CompiledCode& code) {
 void Vm::run() {
     const auto* __restrict instrs = code_->instructions.data();
     const auto* __restrict consts = code_->constants.data();
-    const auto* __restrict names = code_->names.data();
-    const uint32_t num_instrs = static_cast<uint32_t>(code_->instructions.size());
-    const uint32_t num_names = static_cast<uint32_t>(code_->names.size());
+    auto* names = code_->names.data();
+    uint32_t num_instrs = static_cast<uint32_t>(code_->instructions.size());
+    uint32_t num_names = static_cast<uint32_t>(code_->names.size());
 
     // Cache frequently accessed frame
     CallFrame* frame = &frames_.back();
@@ -356,7 +360,112 @@ void Vm::run() {
                 break;
             }
 
+            case OpCode::IMPORT_NAME: {
+                const std::string& mod_name = names[instr.operand];
+
+                // Check if already imported
+                if (imported_modules_.count(mod_name)) {
+                    for (auto& [k, v] : imported_modules_[mod_name]) {
+                        uint32_t idx = code_->find_or_add_name(k);
+                        if (idx >= globals_.size()) globals_.resize(idx + 1);
+                        globals_[idx] = v;
+                    }
+                    names = code_->names.data();
+                    num_names = static_cast<uint32_t>(code_->names.size());
+                    break;
+                }
+
+                // Find the .py file
+                std::string filename = mod_name + ".py";
+                std::string filepath = script_dir_.empty() ? filename : script_dir_ + "/" + filename;
+
+                std::ifstream file(filepath);
+                if (!file.is_open()) {
+                    throw RuntimeError("ModuleNotFoundError: No module named '" + mod_name + "'", pc_);
+                }
+
+                std::ostringstream ss;
+                ss << file.rdbuf();
+                std::string source = ss.str();
+                if (!source.empty() && source.back() != '\n') source += '\n';
+
+                // Compile the module
+                mimo::Lexer mod_lexer(source);
+                auto mod_tokens = mod_lexer.tokenize();
+                mimo::Parser mod_parser(std::move(mod_tokens));
+                auto mod_ast = mod_parser.parse();
+                mimo::Compiler mod_compiler;
+                auto mod_code = mod_compiler.compile(mod_ast);
+
+                // Merge module's code into parent's code
+                uint32_t instr_offset = static_cast<uint32_t>(code_->instructions.size());
+                uint32_t const_offset = static_cast<uint32_t>(code_->constants.size());
+
+                // Build name mapping: module name index → parent name index
+                // Deduplicate names that already exist in parent
+                std::vector<uint32_t> name_map(mod_code.names.size());
+                for (size_t i = 0; i < mod_code.names.size(); ++i) {
+                    name_map[i] = code_->find_or_add_name(mod_code.names[i]);
+                }
+
+                // Append constants (fix function entry_points)
+                for (auto& c : mod_code.constants) {
+                    if (c.type() == PyValue::Type::FUNCTION) {
+                        auto fn = c.as_function();
+                        fn->entry_point += instr_offset;
+                    }
+                    code_->constants.push_back(std::move(c));
+                }
+
+                // Append instructions (adjust operands using name_map)
+                for (auto& mod_instr : mod_code.instructions) {
+                    Instruction adjusted = mod_instr;
+                    switch (mod_instr.op) {
+                        case OpCode::LOAD_CONST:
+                        case OpCode::IMPORT_NAME:
+                            adjusted.operand += const_offset;
+                            break;
+                        case OpCode::LOAD_NAME:
+                        case OpCode::STORE_NAME:
+                        case OpCode::MAKE_FUNCTION:
+                            adjusted.operand = name_map[adjusted.operand];
+                            break;
+                        case OpCode::JUMP_IF_FALSE:
+                        case OpCode::JUMP_IF_TRUE:
+                        case OpCode::JUMP_ABSOLUTE:
+                            adjusted.operand += instr_offset;
+                            break;
+                        case OpCode::CALL_FUNCTION:
+                        case OpCode::PRINT:
+                        case OpCode::RETURN_VALUE:
+                            break;
+                        default:
+                            break;
+                    }
+                    code_->instructions.push_back(adjusted);
+                }
+
+                // Replace module's HALT with a jump back to parent's next instruction
+                uint32_t return_addr = pc_; // parent's next instruction after IMPORT
+                code_->instructions[instr_offset + mod_code.instructions.size() - 1] =
+                    Instruction(OpCode::JUMP_ABSOLUTE, return_addr);
+
+                // Refresh cached pointers
+                instrs = code_->instructions.data();
+                consts = code_->constants.data();
+                names = code_->names.data();
+                num_instrs = static_cast<uint32_t>(code_->instructions.size());
+                num_names = static_cast<uint32_t>(code_->names.size());
+
+                // Jump to module's code
+                pc_ = instr_offset;
+
+                break;
+            }
+
             case OpCode::MAKE_FUNCTION:
+                break;
+
             case OpCode::FOR_ITER:
             case OpCode::GET_ITER:
             case OpCode::SETUP_LOOP:

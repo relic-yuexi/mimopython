@@ -79,6 +79,8 @@ private:
     void visit(BreakStmt& n) override;
     void visit(ContinueStmt& n) override;
     void visit(PassStmt& n) override;
+    void visit(ImportStmt& n) override;
+    void visit(FromImportStmt& n) override;
 
     void compile_statements(const std::vector<StmtPtr>& stmts);
 };

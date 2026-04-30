@@ -19,6 +19,7 @@ struct CompiledCode;
 #include <stdexcept>
 #include <cstdint>
 #include <iostream>
+#include <filesystem>
 
 namespace mimo {
 
@@ -42,14 +43,19 @@ struct CallFrame {
 class Vm {
 public:
     Vm();
-    void execute(const CompiledCode& code);
+    void execute(CompiledCode& code);
 
 private:
     std::vector<PyValue> stack_;
     std::vector<PyValue> globals_;  // indexed by name pool index
     std::vector<CallFrame> frames_;
     uint32_t pc_ = 0;
-    const CompiledCode* code_ = nullptr;
+    CompiledCode* code_ = nullptr;
+
+    // Module search path
+    std::string script_dir_;
+    // Already-imported modules (prevent re-import)
+    std::unordered_map<std::string, std::unordered_map<std::string, PyValue>> imported_modules_;
 
     // Output capture
     std::vector<std::string> output_;
@@ -67,6 +73,7 @@ private:
 
 public:
     void set_output_stream(std::ostream& os) { out_stream_ = &os; }
+    void set_script_dir(const std::string& dir) { script_dir_ = dir; }
     const std::vector<std::string>& output() const { return output_; }
 };
 

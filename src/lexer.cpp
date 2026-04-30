@@ -15,6 +15,7 @@ const std::unordered_map<std::string, TokenType> Lexer::keywords_ = {
     {"print", TokenType::PRINT}, {"range", TokenType::RANGE},
     {"True", TokenType::TRUE}, {"False", TokenType::FALSE}, {"None", TokenType::NONE},
     {"break", TokenType::BREAK}, {"continue", TokenType::CONTINUE}, {"pass", TokenType::PASS},
+    {"import", TokenType::IMPORT}, {"from", TokenType::FROM}, {"as", TokenType::AS},
 };
 
 Lexer::Lexer(std::string_view source) : source_(std::string(source)) {}

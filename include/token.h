@@ -17,7 +17,7 @@ enum class TokenType {
     // Identifiers & keywords
     IDENTIFIER,
     DEF, RETURN, IF, ELIF, ELSE, WHILE, FOR, IN, AND, OR, NOT,
-    PRINT, RANGE, BREAK, CONTINUE, PASS,
+    PRINT, RANGE, BREAK, CONTINUE, PASS, IMPORT, FROM, AS,
 
     // Operators
     PLUS, MINUS, STAR, SLASH, SLASHSLASH, PERCENT,
@@ -70,6 +70,9 @@ inline const char* token_type_name(TokenType t) {
         case TokenType::BREAK:      return "BREAK";
         case TokenType::CONTINUE:   return "CONTINUE";
         case TokenType::PASS:       return "PASS";
+        case TokenType::IMPORT:     return "IMPORT";
+        case TokenType::FROM:       return "FROM";
+        case TokenType::AS:         return "AS";
         case TokenType::PLUS:       return "PLUS";
         case TokenType::MINUS:      return "MINUS";
         case TokenType::STAR:       return "STAR";

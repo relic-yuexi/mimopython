@@ -178,6 +178,22 @@ struct PassStmt : StmtNode {
     void accept(AstVisitor& v) override;
 };
 
+struct ImportStmt : StmtNode {
+    std::string module_name;
+    std::string alias;  // optional: import foo as bar
+    ImportStmt(std::string mod, std::string as, uint32_t ln)
+        : module_name(std::move(mod)), alias(std::move(as)) { line = ln; }
+    void accept(AstVisitor& v) override;
+};
+
+struct FromImportStmt : StmtNode {
+    std::string module_name;
+    std::string name;  // the specific name to import
+    FromImportStmt(std::string mod, std::string n, uint32_t ln)
+        : module_name(std::move(mod)), name(std::move(n)) { line = ln; }
+    void accept(AstVisitor& v) override;
+};
+
 // === Program ===
 
 struct ProgramNode {
@@ -209,6 +225,8 @@ public:
     virtual void visit(BreakStmt& n) = 0;
     virtual void visit(ContinueStmt& n) = 0;
     virtual void visit(PassStmt& n) = 0;
+    virtual void visit(ImportStmt& n) = 0;
+    virtual void visit(FromImportStmt& n) = 0;
 };
 
 } // namespace mimo

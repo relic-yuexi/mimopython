@@ -436,4 +436,19 @@ void Compiler::visit(PassStmt& /*n*/) {
     // No-op
 }
 
+void Compiler::visit(ImportStmt& n) {
+    // IMPORT_NAME merges the module's names directly into globals
+    uint32_t mod_idx = code_.find_or_add_name(n.module_name);
+    code_.emit(Instruction(OpCode::IMPORT_NAME, mod_idx));
+    // No STORE_NAME needed - module names are merged directly
+}
+
+void Compiler::visit(FromImportStmt& n) {
+    // IMPORT_NAME merges all module names into globals
+    // Then we just use the specific name directly
+    uint32_t mod_idx = code_.find_or_add_name(n.module_name);
+    code_.emit(Instruction(OpCode::IMPORT_NAME, mod_idx));
+    // The specific name is now available in globals
+}
+
 } // namespace mimo

@@ -13,6 +13,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <filesystem>
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -27,17 +28,21 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Get directory of the script (for resolving imports)
+    std::string script_dir;
+    try {
+        script_dir = std::filesystem::path(filename).parent_path().string();
+    } catch (...) {}
+
     std::ostringstream ss;
     ss << file.rdbuf();
     std::string source = ss.str();
 
-    // Add trailing newline if missing
     if (!source.empty() && source.back() != '\n') {
         source += '\n';
     }
 
     try {
-        // Lex
         mimo::Lexer lexer(source);
         auto tokens = lexer.tokenize();
         if (lexer.has_errors()) {
@@ -48,7 +53,6 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        // Parse
         mimo::Parser parser(std::move(tokens));
         auto ast = parser.parse();
         if (parser.has_errors()) {
@@ -59,12 +63,11 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        // Compile
         mimo::Compiler compiler;
         auto code = compiler.compile(ast);
 
-        // Execute
         mimo::Vm vm;
+        vm.set_script_dir(script_dir);
         vm.execute(code);
 
     } catch (const mimo::RuntimeError& e) {

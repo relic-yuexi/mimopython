@@ -58,6 +58,8 @@ private:
     StmtPtr parse_def();
     StmtPtr parse_return();
     StmtPtr parse_print();
+    StmtPtr parse_import();
+    StmtPtr parse_from_import();
 
     // Expression parsing (precedence climbing)
     ExprPtr parse_expression();

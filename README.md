@@ -17,7 +17,7 @@ A lightweight Python subset interpreter built from scratch in C++20. Hand-writte
 | Development time | 41 min 1 sec |
 | Test pass rate | 119/119 (100%) |
 
-> Built using **MiMo V2.5** (Xiaomi's language model) + **Claude Code** (Anthropic's CLI tool).
+> Built using **MiMo V2.5 Pro** (Xiaomi's language model) + **Claude Code** (Anthropic's CLI tool).
 > Demonstrates that open-weight models paired with agentic coding tools can produce production-quality systems code end-to-end.
 
 ---
@@ -192,50 +192,205 @@ mimopython/
 
 ---
 
-## Build & Run / 构建与运行
+## Quick Start / 快速开始
 
-### Prerequisites / 环境要求
+### Windows (MSYS2) — 从零开始
 
-- MSYS2 MinGW64 (or any GCC 13+ / Clang 16+ with C++20 support)
-- CMake 3.20+
-- Ninja (or Make)
-- GoogleTest
+#### 第一步：安装 MSYS2
 
-### Install Dependencies / 安装依赖
+1. 下载 MSYS2 安装包：https://www.msys2.org/
+2. 运行安装程序，安装到默认路径 `C:\msys64`
+3. 安装完成后，打开 **MSYS2 MinGW64** 终端（不是 MSYS2 MSYS）
+
+> **重要**：必须使用 **MinGW64** 终端，不是 MSYS 终端。开始菜单搜索 "MSYS2 MinGW64"。
+
+#### 第二步：安装工具链和依赖
+
+在 MSYS2 MinGW64 终端中执行：
 
 ```bash
-# MSYS2 MinGW64
-pacman -S mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja mingw-w64-x86_64-gtest
+# 更新包管理器（首次使用需要）
+pacman -Syu
 
-# Ubuntu/Debian
-sudo apt install cmake ninja-build libgtest-dev
-
-# macOS (Homebrew)
-brew install cmake ninja googletest
+# 安装编译工具链
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja mingw-w64-x86_64-gtest
 ```
 
-### Build / 构建
+全部选 Y 确认安装。
+
+#### 第三步：克隆并编译
 
 ```bash
+# 克隆项目
+git clone https://github.com/YOUR_USERNAME/mimopython.git
+cd mimopython
+
+# 配置构建
 cmake -B build -G Ninja
+
+# 编译
 cmake --build build
 ```
 
-### Run Tests / 运行测试
+编译成功后你会看到：
+
+```
+[5/5] Linking CXX executable mimopython_tests.exe
+```
+
+#### 第四步：运行测试
 
 ```bash
 cd build
-ctest --output-on-failure
-# or
-./mimopython_tests
+./mimopython_tests.exe
 ```
 
-### Run a Program / 运行程序
+预期输出：
+
+```
+[==========] Running 119 tests from 5 test suites.
+[  PASSED  ] 119 tests.
+```
+
+#### 第五步：运行你的第一个程序
 
 ```bash
-./build/mimopython test_programs/hello.py
-./build/mimopython test_programs/fibonacci.py
-./build/mimopython test_programs/primes.py
+cd build
+./mimopython.exe ../test_programs/hello.py
+```
+
+预期输出：
+
+```
+Hello, mimopython!
+7
+The answer is: 42
+```
+
+#### 第六步：写你自己的 Python 程序
+
+创建一个文件 `my_program.py`：
+
+```python
+def greet(name):
+    print("Hello, " + name + "!")
+
+def fibonacci(n):
+    a = 0
+    b = 1
+    for i in range(n):
+        print(a)
+        temp = a + b
+        a = b
+        b = temp
+
+greet("World")
+print("---")
+fibonacci(10)
+```
+
+运行：
+
+```bash
+./build/mimopython my_program.py
+```
+
+---
+
+### Ubuntu / Debian — 从零开始
+
+```bash
+# 1. 安装依赖
+sudo apt update
+sudo apt install -y build-essential cmake ninja-build libgtest-dev git
+
+# 2. 克隆项目
+git clone https://github.com/YOUR_USERNAME/mimopython.git
+cd mimopython
+
+# 3. 编译
+cmake -B build -G Ninja
+cmake --build build
+
+# 4. 运行测试
+cd build
+./mimopython_tests
+
+# 5. 运行示例程序
+./mimopython ../test_programs/hello.py
+```
+
+---
+
+### macOS — 从零开始
+
+```bash
+# 1. 安装 Xcode Command Line Tools（如果没有的话）
+xcode-select --install
+
+# 2. 安装 Homebrew（如果没有的话）
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 3. 安装依赖
+brew install cmake ninja googletest
+
+# 4. 克隆项目
+git clone https://github.com/YOUR_USERNAME/mimopython.git
+cd mimopython
+
+# 5. 编译
+cmake -B build -G Ninja
+cmake --build build
+
+# 6. 运行测试
+cd build
+./mimopython_tests
+
+# 7. 运行示例程序
+./mimopython ../test_programs/hello.py
+```
+
+---
+
+### 常见问题 / Troubleshooting
+
+#### Q: `cmake: command not found`
+
+确保 cmake 在 PATH 中。MSYS2 用户需要安装 `mingw-w64-x86_64-cmake`（不是 `cmake`）。
+
+#### Q: `ninja: command not found`
+
+同上，MSYS2 用户安装 `mingw-w64-x86_64-ninja`。或者用 Make 替代：
+
+```bash
+cmake -B build
+cmake --build build
+```
+
+#### Q: `fatal error: gtest/gtest.h: No such file or directory`
+
+GoogleTest 没安装。MSYS2 执行 `pacman -S mingw-w64-x86_64-gtest`，Ubuntu 执行 `sudo apt install libgtest-dev`。
+
+#### Q: 编译报错 `use of an operand of type 'bool' in 'operator++' is forbidden`
+
+你的 GCC 版本太旧。本项目需要 GCC 13+ 或 Clang 16+（支持 C++20）。MSYS2 用户执行 `pacman -Syu` 更新工具链。
+
+#### Q: `Permission denied` 链接错误
+
+Windows 上可能有杀毒软件锁定了 exe 文件。关闭杀毒软件实时保护后重试，或在另一个目录重新构建。
+
+#### Q: 如何使用 Make 而不是 Ninja？
+
+```bash
+cmake -B build          # 不加 -G Ninja，默认使用 Make
+cmake --build build
+```
+
+#### Q: 如何启用 AddressSanitizer（内存检测）？
+
+```bash
+cmake -B build -DENABLE_ASAN=ON
+cmake --build build
 ```
 
 ---

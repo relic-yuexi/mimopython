@@ -46,6 +46,7 @@ public:
 
 private:
     std::vector<PyValue> stack_;
+    std::vector<PyValue> globals_;  // indexed by name pool index
     std::vector<CallFrame> frames_;
     uint32_t pc_ = 0;
     const CompiledCode* code_ = nullptr;

@@ -55,6 +55,8 @@ void Vm::execute(const CompiledCode& code) {
     code_ = &code;
     frames_.clear();
     frames_.push_back(CallFrame{});
+    globals_.clear();
+    globals_.resize(code.names.size());
     pc_ = 0;
     stack_.clear();
     run();
@@ -75,16 +77,16 @@ void Vm::run() {
                 break;
 
             case OpCode::LOAD_NAME: {
-                const std::string& name = names[instr.operand];
-                try {
-                    push(load_var(instr.operand));
-                } catch (const RuntimeError&) {
+                if (instr.operand < globals_.size()) {
+                    push(globals_[instr.operand]);
+                } else {
+                    const std::string& name = names[instr.operand];
                     if (name == "range") {
                         auto fn = std::make_shared<PyFunction>();
                         fn->name = "range";
                         push(PyValue(fn));
                     } else {
-                        throw;
+                        throw RuntimeError("NameError: name '" + name + "' is not defined", pc_);
                     }
                 }
                 break;
@@ -92,7 +94,10 @@ void Vm::run() {
 
             case OpCode::STORE_NAME: {
                 PyValue val = pop();
-                store_var(instr.operand, std::move(val));
+                if (instr.operand >= globals_.size()) {
+                    globals_.resize(instr.operand + 1);
+                }
+                globals_[instr.operand] = std::move(val);
                 break;
             }
 

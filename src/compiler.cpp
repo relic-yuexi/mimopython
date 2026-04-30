@@ -51,6 +51,15 @@ CompiledCode Compiler::compile(ProgramNode& program) {
     return code_;
 }
 
+uint32_t Compiler::get_or_create_local_slot(const std::string& name) {
+    auto it = local_slot_map_.find(name);
+    if (it != local_slot_map_.end()) return it->second;
+    uint32_t slot = static_cast<uint32_t>(local_slots_.size());
+    local_slots_.push_back(name);
+    local_slot_map_[name] = slot;
+    return slot;
+}
+
 void Compiler::compile_statements(const std::vector<StmtPtr>& stmts) {
     for (auto& stmt : stmts) {
         stmt->accept(*this);
@@ -85,8 +94,12 @@ void Compiler::visit(NoneLiteral& /*n*/) {
 }
 
 void Compiler::visit(Identifier& n) {
-    uint32_t idx = code_.find_or_add_name(n.name);
-    code_.emit(Instruction(OpCode::LOAD_NAME, idx));
+    if (in_function_ && local_slot_map_.count(n.name)) {
+        code_.emit(Instruction(OpCode::LOAD_FAST, local_slot_map_[n.name]));
+    } else {
+        uint32_t idx = code_.find_or_add_name(n.name);
+        code_.emit(Instruction(OpCode::LOAD_NAME, idx));
+    }
 }
 
 void Compiler::visit(BinaryExpr& n) {
@@ -158,8 +171,13 @@ void Compiler::visit(ExprStmt& n) {
 
 void Compiler::visit(AssignStmt& n) {
     n.value->accept(*this);
-    uint32_t idx = code_.find_or_add_name(n.name);
-    code_.emit(Instruction(OpCode::STORE_NAME, idx));
+    if (in_function_) {
+        uint32_t slot = get_or_create_local_slot(n.name);
+        code_.emit(Instruction(OpCode::STORE_FAST, slot));
+    } else {
+        uint32_t idx = code_.find_or_add_name(n.name);
+        code_.emit(Instruction(OpCode::STORE_NAME, idx));
+    }
 }
 
 void Compiler::visit(PrintStmt& n) {
@@ -353,13 +371,18 @@ void Compiler::visit(FuncDef& n) {
 
     uint32_t func_start = code_.current_address();
 
-    // The VM will set up parameters as locals before entering the function body.
-    // When CALL_FUNCTION is called, the VM:
-    // 1. Pops args and function from stack
-    // 2. Creates a new frame
-    // 3. Stores args as locals (by name, using the function's param list)
-    // 4. Sets PC to func_start
-    // We don't need STORE_NAME for params here - the VM handles it.
+    // Save and set function-local context
+    bool prev_in_function = in_function_;
+    auto prev_local_slots = local_slots_;
+    auto prev_local_slot_map = local_slot_map_;
+    in_function_ = true;
+    local_slots_.clear();
+    local_slot_map_.clear();
+
+    // Register parameters as local slots
+    for (auto& param : n.params) {
+        get_or_create_local_slot(param);
+    }
 
     compile_statements(n.body);
 
@@ -367,6 +390,14 @@ void Compiler::visit(FuncDef& n) {
     uint32_t none_idx = code_.add_constant(PyValue::none());
     code_.emit(Instruction(OpCode::LOAD_CONST, none_idx));
     code_.emit(Instruction(OpCode::RETURN_VALUE));
+
+    // Save local slot info for the VM
+    auto func_local_slots = local_slots_;
+
+    // Restore previous context
+    in_function_ = prev_in_function;
+    local_slots_ = prev_local_slots;
+    local_slot_map_ = prev_local_slot_map;
 
     // Patch skip jump
     code_.instructions[skip_jump].operand = code_.current_address();
@@ -376,6 +407,8 @@ void Compiler::visit(FuncDef& n) {
     func->name = n.name;
     func->params = n.params;
     func->entry_point = func_start;
+    // Store local slot names so VM can set up fast_locals
+    func->local_slot_names = std::move(func_local_slots);
 
     uint32_t func_idx = code_.add_constant(PyValue(func));
     code_.emit(Instruction(OpCode::LOAD_CONST, func_idx));

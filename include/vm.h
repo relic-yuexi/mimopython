@@ -31,8 +31,12 @@ public:
 
 struct CallFrame {
     uint32_t return_address = 0;
-    uint32_t base_pointer = 0;  // stack index where this frame's locals start
+    uint32_t base_pointer = 0;
     std::unordered_map<std::string, PyValue> locals;
+    // Fast local access: indexed by slot number
+    std::vector<PyValue> fast_locals;
+    // Map name → slot index (for STORE_FAST/LOAD_FAST)
+    std::unordered_map<std::string, uint32_t> local_slots;
 };
 
 class Vm {

@@ -83,10 +83,10 @@ public:
 struct PyFunction {
     std::string name;
     std::vector<std::string> params;
-    // bytecode offset where the function body starts
     uint32_t entry_point = 0;
-    // closure: captured variables
     std::unordered_map<std::string, PyValue> closure;
+    // Local variable slot names (for LOAD_FAST/STORE_FAST)
+    std::vector<std::string> local_slot_names;
 };
 
 } // namespace mimo

@@ -42,6 +42,13 @@ public:
 private:
     CompiledCode code_;
 
+    // Function-local variable tracking
+    bool in_function_ = false;
+    std::vector<std::string> local_slots_;  // slot index → name
+    std::unordered_map<std::string, uint32_t> local_slot_map_;  // name → slot index
+
+    uint32_t get_or_create_local_slot(const std::string& name);
+
     // Loop tracking for break/continue
     struct LoopContext {
         uint32_t break_target;    // where break should jump

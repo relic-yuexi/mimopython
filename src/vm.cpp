@@ -96,6 +96,27 @@ void Vm::run() {
                 break;
             }
 
+            case OpCode::LOAD_FAST: {
+                auto& frame = frames_.back();
+                if (instr.operand < frame.fast_locals.size()) {
+                    push(frame.fast_locals[instr.operand]);
+                } else {
+                    throw RuntimeError("VM: invalid local slot", pc_);
+                }
+                break;
+            }
+
+            case OpCode::STORE_FAST: {
+                PyValue val = pop();
+                auto& frame = frames_.back();
+                if (instr.operand < frame.fast_locals.size()) {
+                    frame.fast_locals[instr.operand] = std::move(val);
+                } else {
+                    throw RuntimeError("VM: invalid local slot", pc_);
+                }
+                break;
+            }
+
             case OpCode::POP_TOP:
                 pop();
                 break;
@@ -214,7 +235,6 @@ void Vm::run() {
             case OpCode::CALL_FUNCTION: {
                 uint32_t num_args = instr.operand;
 
-                // Stack: [arg0, arg1, ..., argN-1, function]
                 PyValue func_val = pop();
                 if (func_val.type() != PyValue::Type::FUNCTION) {
                     throw RuntimeError("TypeError: object is not callable", pc_);
@@ -228,16 +248,26 @@ void Vm::run() {
                     args[i] = pop();
                 }
 
-                // Push new call frame (unified stack - no save/restore)
+                // Push new call frame
                 CallFrame frame;
                 frame.return_address = pc_;
 
-                // Bind parameters as locals in the new frame
+                // Set up fast locals from function's slot names
+                if (!func->local_slot_names.empty()) {
+                    frame.fast_locals.resize(func->local_slot_names.size(), PyValue::none());
+                    frame.local_slots.reserve(func->local_slot_names.size());
+                    for (size_t i = 0; i < func->local_slot_names.size(); ++i) {
+                        frame.local_slots[func->local_slot_names[i]] = static_cast<uint32_t>(i);
+                    }
+                }
+
+                // Bind parameters (params are the first slots)
                 for (size_t i = 0; i < func->params.size(); ++i) {
                     if (i < args.size()) {
-                        frame.locals[func->params[i]] = std::move(args[i]);
-                    } else {
-                        frame.locals[func->params[i]] = PyValue::none();
+                        if (i < frame.fast_locals.size()) {
+                            frame.fast_locals[i] = std::move(args[i]);
+                        }
+                        frame.locals[func->params[i]] = frame.fast_locals[i];
                     }
                 }
 

@@ -18,6 +18,8 @@ enum class OpCode : uint8_t {
     LOAD_CONST,       // operand: index into constants pool
     LOAD_NAME,        // operand: index into names pool
     STORE_NAME,       // operand: index into names pool
+    LOAD_FAST,        // operand: local slot index (direct stack access)
+    STORE_FAST,       // operand: local slot index (direct stack access)
     POP_TOP,          // pop top of stack
 
     BINARY_ADD,
@@ -73,6 +75,8 @@ inline const char* opcode_name(OpCode op) {
         case OpCode::LOAD_CONST:       return "LOAD_CONST";
         case OpCode::LOAD_NAME:        return "LOAD_NAME";
         case OpCode::STORE_NAME:       return "STORE_NAME";
+        case OpCode::LOAD_FAST:        return "LOAD_FAST";
+        case OpCode::STORE_FAST:       return "STORE_FAST";
         case OpCode::POP_TOP:          return "POP_TOP";
         case OpCode::BINARY_ADD:       return "BINARY_ADD";
         case OpCode::BINARY_SUB:       return "BINARY_SUB";

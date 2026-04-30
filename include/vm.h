@@ -2,8 +2,7 @@
  * @file vm.h
  * @brief Stack-based virtual machine for executing bytecode.
  *
- * Implements an operand stack, call frame stack, and scope chain.
- * Each call frame has its own local variable namespace.
+ * Optimized: unified stack with call frames. No save/restore per function call.
  */
 #pragma once
 
@@ -13,6 +12,7 @@
 namespace mimo {
 struct CompiledCode;
 }
+
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -30,36 +30,21 @@ public:
 };
 
 struct CallFrame {
-    std::unordered_map<std::string, PyValue> locals;
     uint32_t return_address = 0;
-    // For function frames: the function's closure
-    std::unordered_map<std::string, PyValue> closure;
-};
-
-struct LoopFrame {
-    uint32_t break_target;
-    uint32_t continue_target;
+    uint32_t base_pointer = 0;  // stack index where this frame's locals start
+    std::unordered_map<std::string, PyValue> locals;
 };
 
 class Vm {
 public:
     Vm();
     void execute(const CompiledCode& code);
-    // Execute with a pre-loaded environment (for function calls)
-    void execute_function(const CompiledCode& code, uint32_t entry,
-                          const std::unordered_map<std::string, PyValue>& closure,
-                          std::vector<PyValue> args,
-                          const std::vector<std::string>& param_names);
-    PyValue last_result() const { return last_result_; }
 
 private:
     std::vector<PyValue> stack_;
     std::vector<CallFrame> frames_;
-    std::vector<LoopFrame> loop_stack_;
     uint32_t pc_ = 0;
     const CompiledCode* code_ = nullptr;
-    PyValue last_result_;
-    bool returned_ = false;
 
     // Output capture
     std::vector<std::string> output_;
@@ -70,14 +55,11 @@ private:
     PyValue pop();
     void push(PyValue val);
 
-    // Variable resolution: local -> closure -> global
-    PyValue load_var(const std::string& name);
-    void store_var(const std::string& name, PyValue val);
-    bool has_var(const std::string& name) const;
+    PyValue load_var(uint32_t name_idx);
+    void store_var(uint32_t name_idx, PyValue val);
 
     void run();
 
-    // Public interface for tests
 public:
     void set_output_stream(std::ostream& os) { out_stream_ = &os; }
     const std::vector<std::string>& output() const { return output_; }

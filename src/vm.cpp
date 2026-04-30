@@ -1,10 +1,9 @@
 /**
  * @file vm.cpp
- * @brief Stack-based virtual machine implementation.
+ * @brief Stack-based virtual machine - optimized with unified stack.
  *
- * Call frame stack manages local scopes. Each CALL_FUNCTION pushes a frame
- * with return address and parameters. RETURN_VALUE pops the frame and
- * pushes the result.
+ * Function calls use the same stack (no save/restore). This eliminates
+ * the dominant overhead in recursive workloads.
  */
 #include "vm.h"
 #include "compiler.h"
@@ -36,26 +35,20 @@ void Vm::push(PyValue val) {
     stack_.push_back(std::move(val));
 }
 
-PyValue Vm::load_var(const std::string& name) {
+PyValue Vm::load_var(uint32_t name_idx) {
+    const std::string& name = code_->names[name_idx];
+    // Search frames from most recent to oldest
     for (auto it = frames_.rbegin(); it != frames_.rend(); ++it) {
         auto found = it->locals.find(name);
         if (found != it->locals.end()) return found->second;
-        auto cf = it->closure.find(name);
-        if (cf != it->closure.end()) return cf->second;
     }
     throw RuntimeError("NameError: name '" + name + "' is not defined", pc_);
 }
 
-void Vm::store_var(const std::string& name, PyValue val) {
-    // Always store in current frame (creates local variable in functions)
-    current_frame().locals[name] = std::move(val);
-}
-
-bool Vm::has_var(const std::string& name) const {
-    for (auto it = frames_.rbegin(); it != frames_.rend(); ++it) {
-        if (it->locals.count(name) || it->closure.count(name)) return true;
-    }
-    return false;
+void Vm::store_var(uint32_t name_idx, PyValue val) {
+    const std::string& name = code_->names[name_idx];
+    // Store in current frame
+    frames_.back().locals[name] = std::move(val);
 }
 
 void Vm::execute(const CompiledCode& code) {
@@ -63,75 +56,29 @@ void Vm::execute(const CompiledCode& code) {
     frames_.clear();
     frames_.push_back(CallFrame{});
     pc_ = 0;
-    returned_ = false;
-    run();
-}
-
-void Vm::execute_function(const CompiledCode& code, uint32_t entry,
-                          const std::unordered_map<std::string, PyValue>& closure,
-                          std::vector<PyValue> args,
-                          const std::vector<std::string>& param_names) {
-    // Save current VM state
-    auto saved_code = code_;
-    auto saved_pc = pc_;
-    auto saved_stack = std::move(stack_);
-    auto saved_frames = std::move(frames_);
-    auto saved_loops = std::move(loop_stack_);
-
-    code_ = &code;
-    frames_.clear();
-    CallFrame frame;
-    frame.closure = closure;
-    frame.return_address = 0;
-
-    // Bind parameters as locals
-    for (size_t i = 0; i < param_names.size(); ++i) {
-        if (i < args.size()) {
-            frame.locals[param_names[i]] = std::move(args[i]);
-        } else {
-            frame.locals[param_names[i]] = PyValue::none();
-        }
-    }
-    frames_.push_back(std::move(frame));
-    pc_ = entry;
     stack_.clear();
-    loop_stack_.clear();
-
     run();
-
-    // Result is on top of stack
-    PyValue result = PyValue::none();
-    if (!stack_.empty()) {
-        result = pop();
-    }
-
-    // Restore state
-    code_ = saved_code;
-    pc_ = saved_pc;
-    stack_ = std::move(saved_stack);
-    frames_ = std::move(saved_frames);
-    loop_stack_ = std::move(saved_loops);
-
-    // Push result onto caller's stack
-    push(std::move(result));
 }
 
 void Vm::run() {
-    while (pc_ < code_->instructions.size()) {
-        auto& instr = code_->instructions[pc_];
+    const auto& instrs = code_->instructions;
+    const auto& consts = code_->constants;
+    const auto& names = code_->names;
+
+    while (pc_ < instrs.size()) {
+        const auto& instr = instrs[pc_];
         pc_++;
 
         switch (instr.op) {
             case OpCode::LOAD_CONST:
-                push(code_->constants[instr.operand]);
+                push(consts[instr.operand]);
                 break;
 
             case OpCode::LOAD_NAME: {
-                const std::string& name = code_->names[instr.operand];
+                const std::string& name = names[instr.operand];
                 try {
-                    push(load_var(name));
+                    push(load_var(instr.operand));
                 } catch (const RuntimeError&) {
-                    // Built-in: range
                     if (name == "range") {
                         auto fn = std::make_shared<PyFunction>();
                         fn->name = "range";
@@ -144,9 +91,8 @@ void Vm::run() {
             }
 
             case OpCode::STORE_NAME: {
-                const std::string& name = code_->names[instr.operand];
                 PyValue val = pop();
-                store_var(name, std::move(val));
+                store_var(instr.operand, std::move(val));
                 break;
             }
 
@@ -248,16 +194,14 @@ void Vm::run() {
             }
 
             case OpCode::JUMP_IF_FALSE: {
-                PyValue val = top();
-                if (!val.truthy()) {
+                if (!top().truthy()) {
                     pc_ = instr.operand;
                 }
                 break;
             }
 
             case OpCode::JUMP_IF_TRUE: {
-                PyValue val = top();
-                if (val.truthy()) {
+                if (top().truthy()) {
                     pc_ = instr.operand;
                 }
                 break;
@@ -277,66 +221,48 @@ void Vm::run() {
                 }
 
                 auto func = func_val.as_function();
-                std::vector<PyValue> args;
-                args.reserve(num_args);
-                for (uint32_t i = 0; i < num_args; ++i) {
-                    args.push_back(pop());
-                }
-                std::reverse(args.begin(), args.end());
 
-                // Set up new call frame
-                CallFrame new_frame;
-                new_frame.return_address = pc_;
+                // Pop arguments
+                std::vector<PyValue> args(num_args);
+                for (int i = static_cast<int>(num_args) - 1; i >= 0; --i) {
+                    args[i] = pop();
+                }
+
+                // Push new call frame (unified stack - no save/restore)
+                CallFrame frame;
+                frame.return_address = pc_;
+
+                // Bind parameters as locals in the new frame
                 for (size_t i = 0; i < func->params.size(); ++i) {
                     if (i < args.size()) {
-                        new_frame.locals[func->params[i]] = std::move(args[i]);
+                        frame.locals[func->params[i]] = std::move(args[i]);
                     } else {
-                        new_frame.locals[func->params[i]] = PyValue::none();
+                        frame.locals[func->params[i]] = PyValue::none();
                     }
                 }
 
-                // Save stack and switch to function
-                auto saved_stack = std::move(stack_);
-                auto saved_loops = std::move(loop_stack_);
-
-                frames_.push_back(std::move(new_frame));
-                uint32_t saved_pc = pc_;
+                frames_.push_back(std::move(frame));
                 pc_ = func->entry_point;
-                stack_.clear();
-                loop_stack_.clear();
+                break;
+            }
 
-                // Execute function body
-                run();
-
-                // Get result
-                PyValue result = PyValue::none();
-                if (!stack_.empty()) {
-                    result = pop();
+            case OpCode::RETURN_VALUE: {
+                PyValue result = pop();
+                if (frames_.size() > 1) {
+                    uint32_t ret_addr = frames_.back().return_address;
+                    frames_.pop_back();
+                    pc_ = ret_addr;
                 }
-
-                // Restore
-                pc_ = saved_pc;
-                stack_ = std::move(saved_stack);
-                loop_stack_ = std::move(saved_loops);
-                frames_.pop_back();
-
                 push(std::move(result));
                 break;
             }
 
-            case OpCode::RETURN_VALUE:
-                // Return is handled by simply returning from run().
-                // The caller will pick up the result from the stack.
-                return;
-
             case OpCode::PRINT: {
                 uint32_t num_args = instr.operand;
-                std::vector<PyValue> args;
-                for (uint32_t i = 0; i < num_args; ++i) {
-                    args.push_back(pop());
+                std::vector<PyValue> args(num_args);
+                for (int i = static_cast<int>(num_args) - 1; i >= 0; --i) {
+                    args[i] = pop();
                 }
-                // Reverse since we popped from top
-                std::reverse(args.begin(), args.end());
                 std::ostringstream oss;
                 for (uint32_t i = 0; i < args.size(); ++i) {
                     if (i > 0) oss << " ";
@@ -344,17 +270,12 @@ void Vm::run() {
                 }
                 std::string line = oss.str();
                 output_.push_back(line);
-                if (out_stream_) {
-                    *out_stream_ << line << std::endl;
-                } else {
-                    std::cout << line << std::endl;
-                }
+                if (out_stream_) *out_stream_ << line << std::endl;
+                else std::cout << line << std::endl;
                 break;
             }
 
             case OpCode::MAKE_FUNCTION:
-                break;
-
             case OpCode::FOR_ITER:
             case OpCode::GET_ITER:
             case OpCode::SETUP_LOOP:
@@ -362,17 +283,11 @@ void Vm::run() {
                 break;
 
             case OpCode::BREAK_LOOP:
-                if (loop_stack_.empty()) {
-                    throw RuntimeError("SyntaxError: 'break' outside loop", pc_);
-                }
-                pc_ = loop_stack_.back().break_target;
+                if (frames_.empty()) throw RuntimeError("SyntaxError: 'break' outside loop", pc_);
                 break;
 
             case OpCode::CONTINUE_LOOP:
-                if (loop_stack_.empty()) {
-                    throw RuntimeError("SyntaxError: 'continue' outside loop", pc_);
-                }
-                pc_ = loop_stack_.back().continue_target;
+                if (frames_.empty()) throw RuntimeError("SyntaxError: 'continue' outside loop", pc_);
                 break;
 
             case OpCode::NOP:

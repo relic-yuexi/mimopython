@@ -327,21 +327,11 @@ void Vm::run() {
 
         // JIT: check if we should compile
         func->call_count++;
-        if (!func->native_func && func->call_count >= 1000000) {
+        if (!func->native_func && func->call_count == 1) {
             try {
                 auto native = jit_.compile(*code_, func->entry_point, func->params);
                 if (native) {
                     func->native_func = native;
-                    // Try the fast path now
-                    if (num_args == 1) {
-                        PyValue arg = std::move(stack_.back()); stack_.pop_back();
-                        if (arg.type() == PyValue::Type::INT) {
-                            int64_t result = native(arg.as_int());
-                            stack_.push_back(PyValue(result));
-                            NEXT();
-                        }
-                        stack_.push_back(std::move(arg));
-                    }
                 }
             } catch (...) {
                 // JIT failed

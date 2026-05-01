@@ -85,8 +85,11 @@ struct PyFunction {
     std::vector<std::string> params;
     uint32_t entry_point = 0;
     std::unordered_map<std::string, PyValue> closure;
-    // Local variable slot names (for LOAD_FAST/STORE_FAST)
     std::vector<std::string> local_slot_names;
+    // JIT: cached native function pointer
+    using NativeFunc = int64_t(*)(int64_t);
+    NativeFunc native_func = nullptr;
+    uint32_t call_count = 0;
 };
 
 } // namespace mimo

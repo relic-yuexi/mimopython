@@ -34,10 +34,29 @@ struct CallFrame {
     uint32_t return_address = 0;
     uint32_t base_pointer = 0;
     std::unordered_map<std::string, PyValue> locals;
-    // Fast local access: indexed by slot number
-    std::vector<PyValue> fast_locals;
-    // Map name → slot index (for STORE_FAST/LOAD_FAST)
+    // Fast local access with small buffer optimization
+    // For functions with <=4 params, avoid heap allocation
+    static constexpr uint32_t INLINE_SLOTS = 4;
+    PyValue inline_slots_[INLINE_SLOTS];
+    std::vector<PyValue> fast_locals;  // only used if > INLINE_SLOTS
     std::unordered_map<std::string, uint32_t> local_slots;
+
+    PyValue& get_fast_local(uint32_t idx) {
+        if (fast_locals.empty()) return inline_slots_[idx];
+        return fast_locals[idx];
+    }
+
+    void init_fast_locals(uint32_t count) {
+        if (count <= INLINE_SLOTS) {
+            for (uint32_t i = 0; i < INLINE_SLOTS; ++i) inline_slots_[i] = PyValue::none();
+        } else {
+            fast_locals.resize(count, PyValue::none());
+        }
+    }
+
+    uint32_t fast_local_count() const {
+        return fast_locals.empty() ? INLINE_SLOTS : static_cast<uint32_t>(fast_locals.size());
+    }
 };
 
 class Vm {

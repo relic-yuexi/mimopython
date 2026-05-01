@@ -102,12 +102,12 @@ void Vm::run() {
     }
 
     CASE(LOAD_FAST): {
-        stack_.push_back(frame->fast_locals[instr.operand]);
+        stack_.push_back(frame->get_fast_local(instr.operand));
         NEXT();
     }
 
     CASE(STORE_FAST): {
-        frame->fast_locals[instr.operand] = std::move(stack_.back());
+        frame->get_fast_local(instr.operand) = std::move(stack_.back());
         stack_.pop_back();
         NEXT();
     }
@@ -305,7 +305,7 @@ void Vm::run() {
     }
 
     CASE(CALL_FUNCTION): {
-        uint32_t num_args = instr.operand;
+        const uint32_t num_args = instr.operand;
 
         PyValue func_val = std::move(stack_.back()); stack_.pop_back();
         if (func_val.type() != PyValue::Type::FUNCTION) {
@@ -313,27 +313,20 @@ void Vm::run() {
         }
 
         auto func = func_val.as_function();
-
-        std::vector<PyValue> args(num_args);
-        for (int i = static_cast<int>(num_args) - 1; i >= 0; --i) {
-            args[i] = std::move(stack_.back()); stack_.pop_back();
-        }
+        const uint32_t num_slots = static_cast<uint32_t>(func->local_slot_names.size());
 
         CallFrame new_frame;
         new_frame.return_address = pc_;
 
-        if (!func->local_slot_names.empty()) {
-            new_frame.fast_locals.resize(func->local_slot_names.size(), PyValue::none());
-            new_frame.local_slots.reserve(func->local_slot_names.size());
-            for (size_t i = 0; i < func->local_slot_names.size(); ++i) {
-                new_frame.local_slots[func->local_slot_names[i]] = static_cast<uint32_t>(i);
+        if (num_slots > 0) {
+            new_frame.init_fast_locals(num_slots);
+            // Copy args from stack directly
+            const uint32_t base = static_cast<uint32_t>(stack_.size()) - num_args;
+            const uint32_t limit = num_args < num_slots ? num_args : num_slots;
+            for (uint32_t i = 0; i < limit; ++i) {
+                new_frame.get_fast_local(i) = std::move(stack_[base + i]);
             }
-        }
-
-        for (size_t i = 0; i < func->params.size() && i < args.size(); ++i) {
-            if (i < new_frame.fast_locals.size()) {
-                new_frame.fast_locals[i] = std::move(args[i]);
-            }
+            stack_.resize(base);
         }
 
         frames_.push_back(std::move(new_frame));

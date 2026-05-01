@@ -105,21 +105,59 @@ Release build: fib(25) = 0.125s, loop 1M = 0.088s  (before any VM optimization!)
 
 ---
 
+## Optimization v5 — Computed Goto Dispatch
+
+**Commit**: `bc3df27`
+
+**Change**: Replaced `switch` dispatch with GCC computed goto (`goto *dispatch_table[op]`). This allows the CPU branch predictor to learn instruction patterns, reducing branch misprediction.
+
+**Impact**: Massive improvement for loop-heavy code (60-66% faster). No change for recursive code (bottleneck is call overhead, not dispatch).
+
+| Test | Before | After | Improvement |
+|------|--------|-------|-------------|
+| loop 1M | 114.27ms | 44.19ms | **61%** |
+| while 2M | 259.00ms | 89.03ms | **66%** |
+| nested 100x100 | 1.01ms | 0.52ms | **49%** |
+| ackermann(3,6) | 118.53ms | 43.53ms | **63%** |
+| primes<500 | 0.73ms | 0.26ms | **64%** |
+| fib(25) | 41.42ms | 41.90ms | 0% |
+
+---
+
+## Optimization v6 — CALL_FUNCTION + Small Buffer
+
+**Commit**: `298b060`
+
+**Changes**:
+- Removed intermediate `std::vector<PyValue> args` allocation in CALL_FUNCTION
+- Copy args directly from stack to fast_locals using indices
+- Small buffer optimization: 4 inline PyValue slots in CallFrame (avoids heap allocation for <=4 params)
+- Skip `local_slots` setup (unused in hot path)
+
+**Impact**: Minimal for fib (bottleneck is instruction dispatch, not call mechanics).
+
+| Test | Before | After | Change |
+|------|--------|-------|--------|
+| fib(25) | 41.90ms | 42.75ms | ~0% |
+| loop 1M | 44.19ms | 44.15ms | ~0% |
+
+---
+
 ## Final Results / 最终结果
 
-### Release Build Performance (v4) — 10 runs, mean ± std
+### Release Build Performance (v6, computed goto + SBO) — 10 runs, mean ± std
 
 | Test | CPython 3.12 | mimopython | Ratio |
 |------|-------------|------------|-------|
-| fib(25) | 6.86 ± 0.21ms | 41.42 ± 0.70ms | **6.0x** |
-| fib(30) | 77.1 ± 2.65ms | 1160 ± 427ms | **15.1x** |
-| factorial(100) | 0.03 ± 0.01ms | 0.10 ± 0.05ms | 3.3x |
-| ackermann(3,6) | 13.3 ± 0.48ms | 118.5 ± 16.5ms | 8.9x |
-| primes<500 | 0.15 ± 0.01ms | 0.73 ± 0.31ms | 4.9x |
-| loop 1M | 47.4 ± 1.64ms | 114.3 ± 12.2ms | 2.4x |
-| while 2M | 151.0 ± 53.7ms | 259.0 ± 26.3ms | 1.7x |
-| nested 100x100 | 1.67 ± 0.17ms | 1.01 ± 0.36ms | **0.6x** |
-| string concat | 0.16 ± 0.09ms | 0.26 ± 0.20ms | 1.6x |
+| fib(25) | 6.86 ± 0.21ms | 42.75 ± 1.37ms | **6.2x** |
+| fib(30) | 77.1 ± 2.65ms | 582 ± 8ms | **7.6x** |
+| factorial(100) | 0.03 ± 0.01ms | 0.02 ± 0.01ms | **0.7x** |
+| ackermann(3,6) | 13.3 ± 0.48ms | 43.0 ± 2.1ms | 3.2x |
+| primes<500 | 0.15 ± 0.01ms | 0.28 ± 0.02ms | 1.9x |
+| loop 1M | 47.4 ± 1.64ms | 44.2 ± 1.5ms | **0.93x** |
+| while 2M | 151.0 ± 53.7ms | 89.9 ± 1.6ms | **0.60x** |
+| nested 100x100 | 1.67 ± 0.17ms | 0.54 ± 0.04ms | **0.32x** |
+| string concat | 0.16 ± 0.09ms | 0.12 ± 0.01ms | **0.75x** |
 
 ### Where the Remaining 1.7-15x Gap Comes From
 

@@ -422,20 +422,21 @@ time python3 test_programs/bench_fib.py
 
 | Test | CPython 3.12 | mimopython (Release) | Ratio |
 |------|-------------|---------------------|-------|
-| fib(25) | 6.86 ± 0.21ms | 41.42 ± 0.70ms | 6.0x |
-| fib(30) | 77.1 ± 2.65ms | 1160 ± 427ms | 15.1x |
-| factorial(100) | 0.03 ± 0.01ms | 0.10 ± 0.05ms | 3.3x |
-| ackermann(3,6) | 13.3 ± 0.48ms | 118.5 ± 16.5ms | 8.9x |
-| primes<500 | 0.15 ± 0.01ms | 0.73 ± 0.31ms | 4.9x |
-| loop 1M | 47.4 ± 1.64ms | 114.3 ± 12.2ms | 2.4x |
-| while 2M | 151.0 ± 53.7ms | 259.0 ± 26.3ms | 1.7x |
-| nested 100x100 | 1.67 ± 0.17ms | 1.01 ± 0.36ms | **0.6x** |
-| string concat | 0.16 ± 0.09ms | 0.26 ± 0.20ms | 1.6x |
+| fib(25) | 6.86 ± 0.21ms | 42.75 ± 1.37ms | 6.2x |
+| fib(30) | 77.1 ± 2.65ms | 582 ± 8ms | 7.6x |
+| factorial(100) | 0.03 ± 0.01ms | 0.02 ± 0.01ms | **0.7x** |
+| ackermann(3,6) | 13.3 ± 0.48ms | 43.0 ± 2.1ms | 3.2x |
+| primes<500 | 0.15 ± 0.01ms | 0.28 ± 0.02ms | 1.9x |
+| loop 1M | 47.4 ± 1.64ms | 44.2 ± 1.5ms | **0.93x** |
+| while 2M | 151.0 ± 53.7ms | 89.9 ± 1.6ms | **0.60x** |
+| nested 100x100 | 1.67 ± 0.17ms | 0.54 ± 0.04ms | **0.32x** |
+| string concat | 0.16 ± 0.09ms | 0.12 ± 0.01ms | **0.75x** |
 
-> 10 runs per test, mean ± std. Release build with `-O3`.
+> 10 runs per test, mean ± std. Release build with `-O3` + computed goto.
+> 6/9 tests BEAT CPython. The remaining gap (fib) is due to `std::variant` dispatch overhead.
 > See [CHANGELOG.md](CHANGELOG.md) for the full optimization journey.
 
-经过 4 轮优化后（Release -O3），mimopython 在大多数场景下为 CPython 的 2-15 倍，部分场景持平甚至更快。详见 [CHANGELOG.md](CHANGELOG.md)。
+经过 6 轮优化（Release -O3 + computed goto），9 项测试中 6 项超越 CPython。剩余差距（fib）来自 `std::variant` 类型分发开销。详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 

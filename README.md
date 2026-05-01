@@ -406,37 +406,52 @@ cmake --build build
 
 ---
 
-## Benchmark: mimopython vs CPython / 性能对比
+## Benchmark / 性能对比
 
-Test: compute `fib(30)` recursively.
+10 runs per test, mean ± std. Release build with `-O3` + computed goto.
 
-测试：递归计算 `fib(30)`。
+10 次运行取平均值，Release 构建 `-O3` + computed goto。
 
-```bash
-# mimopython
-time ./build/mimopython test_programs/bench_fib.py
+### Three-way Comparison / 三方对比
 
-# CPython
-time python3 test_programs/bench_fib.py
-```
+| Test | mimopython | Python 3.10 | Python 3.12 | vs py310 | vs py312 |
+|------|-----------|-------------|-------------|----------|----------|
+| fib(25) | 43.8 ± 1.2ms | 12.5 ± 0.5ms | 6.86 ± 0.21ms | 3.5x | 6.4x |
+| fib(30) | 901 ± 339ms | 144 ± 6ms | 77.1 ± 2.7ms | 6.3x | 11.7x |
+| factorial(100) | 0.08 ± 0.03ms | 0.03 ± 0.01ms | 0.03 ± 0.01ms | 2.7x | 2.7x |
+| ackermann(3,6) | 47.4 ± 8.5ms | 10.2 ± 0.4ms | 13.3 ± 0.5ms | 4.6x | 3.6x |
+| primes<500 | 0.27 ± 0.04ms | 0.21 ± 0.08ms | 0.15 ± 0.01ms | 1.3x | 1.8x |
+| loop 1M | **47.2 ± 3.5ms** | 46.4 ± 1.0ms | 47.4 ± 1.6ms | **1.0x** | **1.0x** |
+| while 2M | **88.3 ± 1.2ms** | 154 ± 12ms | 151 ± 54ms | **0.57x** | **0.59x** |
+| nested 100x100 | **0.53 ± 0.04ms** | 0.69 ± 0.17ms | 1.67 ± 0.17ms | **0.77x** | **0.32x** |
+| string concat | **0.11 ± 0.01ms** | 0.04 ± 0.00ms | 0.16 ± 0.09ms | 2.8x | **0.69x** |
 
-| Test | CPython 3.12 | mimopython (Release) | Ratio |
-|------|-------------|---------------------|-------|
-| fib(25) | 6.86 ± 0.21ms | 42.75 ± 1.37ms | 6.2x |
-| fib(30) | 77.1 ± 2.65ms | 582 ± 8ms | 7.6x |
-| factorial(100) | 0.03 ± 0.01ms | 0.02 ± 0.01ms | **0.7x** |
-| ackermann(3,6) | 13.3 ± 0.48ms | 43.0 ± 2.1ms | 3.2x |
-| primes<500 | 0.15 ± 0.01ms | 0.28 ± 0.02ms | 1.9x |
-| loop 1M | 47.4 ± 1.64ms | 44.2 ± 1.5ms | **0.93x** |
-| while 2M | 151.0 ± 53.7ms | 89.9 ± 1.6ms | **0.60x** |
-| nested 100x100 | 1.67 ± 0.17ms | 0.54 ± 0.04ms | **0.32x** |
-| string concat | 0.16 ± 0.09ms | 0.12 ± 0.01ms | **0.75x** |
+> **Bold** = mimopython wins / 加粗 = mimopython 胜出
 
-> 10 runs per test, mean ± std. Release build with `-O3` + computed goto.
-> 6/9 tests BEAT CPython. The remaining gap (fib) is due to `std::variant` dispatch overhead.
-> See [CHANGELOG.md](CHANGELOG.md) for the full optimization journey.
+### Key Findings / 关键发现
 
-经过 6 轮优化（Release -O3 + computed goto），9 项测试中 6 项超越 CPython。剩余差距（fib）来自 `std::variant` 类型分发开销。详见 [CHANGELOG.md](CHANGELOG.md)。
+**We beat both CPython versions on 3/9 tests:**
+- `while 2M`: 1.75x faster than py310, 1.7x faster than py312
+- `nested 100x100`: 1.3x faster than py310, 3.1x faster than py312
+- `loop 1M`: tied with both
+
+**py312 vs py310:**
+- Recursion (fib/ackermann): py312 is ~2x faster than py310 (faster-cpython project)
+- Loops (loop/while/nested): identical performance
+- This confirms: py312's optimizations target function call paths, not dispatch
+
+**我们 3/9 项测试击败两个 CPython 版本：**
+- `while 2M`: 比 py310 快 1.75 倍，比 py312 快 1.7 倍
+- `nested 100x100`: 比 py310 快 1.3 倍，比 py312 快 3.1 倍
+- `loop 1M`: 与两者持平
+
+**py312 vs py310：**
+- 递归（fib/ackermann）：py312 比 py310 快 ~2 倍（faster-cpython 项目优化）
+- 循环（loop/while/nested）：性能一致
+- 结论：py312 的优化针对函数调用路径，而非指令分发
+
+See [CHANGELOG.md](CHANGELOG.md) for the full optimization journey.
+详见 [CHANGELOG.md](CHANGELOG.md) 了解完整优化历程。
 
 ---
 

@@ -108,7 +108,10 @@ public:
 private:
     std::unordered_map<uint32_t, uint32_t> call_counts_;
     std::unordered_map<uint32_t, NativeFunc> compiled_funcs_;
-    std::vector<std::unique_ptr<ExecutableMemory>> code_blocks_;
+
+    // Executable memory persists for process lifetime (not tied to JitCompiler).
+    // This prevents use-after-free when PyFunction.native_func outlives the VM.
+    static std::vector<std::unique_ptr<ExecutableMemory>> code_blocks_;
 
     void compile_function(const CompiledCode& code, uint32_t entry_point,
                           const std::vector<std::string>& params,

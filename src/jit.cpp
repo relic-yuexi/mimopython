@@ -211,6 +211,9 @@ void X86Emitter::patch_rel32(size_t patch_pos, int32_t target_offset) {
 
 // === JitCompiler ===
 
+// Static member: executable memory blocks persist for process lifetime
+std::vector<std::unique_ptr<ExecutableMemory>> JitCompiler::code_blocks_;
+
 JitCompiler::JitCompiler() = default;
 JitCompiler::~JitCompiler() = default;
 
@@ -228,12 +231,51 @@ JitCompiler::NativeFunc JitCompiler::get_compiled(uint32_t func_id) const {
     return it != compiled_funcs_.end() ? it->second : nullptr;
 }
 
+// Check if bytecode only uses operations the JIT can handle.
+// Currently supports: LOAD_FAST, LOAD_CONST, LOAD_NAME, COMPARE_LTE, JUMP_IF_FALSE,
+// JUMP_ABSOLUTE, RETURN_VALUE, BINARY_SUB, BINARY_ADD, CALL_FUNCTION, POP_TOP.
+static bool validate_bytecode(const CompiledCode& code, uint32_t entry_point) {
+    const auto& instrs = code.instructions;
+
+    // Find function end: the JUMP_ABSOLUTE before entry_point jumps past the function body
+    uint32_t func_end = static_cast<uint32_t>(instrs.size());
+    if (entry_point > 0 && instrs[entry_point - 1].op == OpCode::JUMP_ABSOLUTE) {
+        func_end = instrs[entry_point - 1].operand;
+    }
+
+    for (size_t i = entry_point; i < func_end; ++i) {
+        switch (instrs[i].op) {
+            case OpCode::LOAD_FAST:
+            case OpCode::LOAD_CONST:
+            case OpCode::LOAD_NAME:
+            case OpCode::COMPARE_LTE:
+            case OpCode::JUMP_IF_FALSE:
+            case OpCode::JUMP_ABSOLUTE:
+            case OpCode::RETURN_VALUE:
+            case OpCode::BINARY_SUB:
+            case OpCode::BINARY_ADD:
+            case OpCode::CALL_FUNCTION:
+            case OpCode::POP_TOP:
+                break;
+            default:
+                return false; // unsupported operation
+        }
+    }
+    return true;
+}
+
 JitCompiler::NativeFunc JitCompiler::compile(const CompiledCode& code,
                                               uint32_t entry_point,
                                               const std::vector<std::string>& params) {
     uint32_t func_id = entry_point;
     auto existing = compiled_funcs_.find(func_id);
     if (existing != compiled_funcs_.end()) return existing->second;
+
+    // Only compile functions whose bytecode matches the supported pattern
+    if (!validate_bytecode(code, entry_point)) {
+        compiled_funcs_[func_id] = nullptr; // don't retry
+        return nullptr;
+    }
 
     auto mem = std::make_unique<ExecutableMemory>(4096);
     uint8_t* code_addr = mem->data();

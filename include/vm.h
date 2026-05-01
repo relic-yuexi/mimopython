@@ -8,6 +8,7 @@
 
 #include "bytecode.h"
 #include "value.h"
+#include "jit.h"
 
 namespace mimo {
 struct CompiledCode;
@@ -70,6 +71,7 @@ private:
     std::vector<CallFrame> frames_;
     uint32_t pc_ = 0;
     CompiledCode* code_ = nullptr;
+    JitCompiler jit_;
 
     // Module search path
     std::string script_dir_;

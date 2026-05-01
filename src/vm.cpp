@@ -320,7 +320,6 @@ void Vm::run() {
 
         if (num_slots > 0) {
             new_frame.init_fast_locals(num_slots);
-            // Copy args from stack directly
             const uint32_t base = static_cast<uint32_t>(stack_.size()) - num_args;
             const uint32_t limit = num_args < num_slots ? num_args : num_slots;
             for (uint32_t i = 0; i < limit; ++i) {

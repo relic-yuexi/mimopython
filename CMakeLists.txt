@@ -26,6 +26,7 @@ add_library(mimopython_core STATIC
     src/compiler.cpp
     src/vm.cpp
     src/value.cpp
+    src/jit.cpp
 )
 target_include_directories(mimopython_core PUBLIC include)
 

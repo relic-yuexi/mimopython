@@ -72,6 +72,7 @@ void X86Emitter::emit_rex(Reg reg, Reg rm) {
 }
 
 void X86Emitter::emit_modrm(Reg reg, Reg rm) {
+    // Mod=11 (register mode): no SIB byte needed
     emit_u8(0xC0 | ((reg & 7) << 3) | (rm & 7));
 }
 
@@ -92,6 +93,10 @@ void X86Emitter::mov_reg_mem(Reg dst, Reg base, int32_t offset) {
     emit_rex(dst, base);
     emit_u8(0x8B);
     emit_u8(0x80 | ((dst & 7) << 3) | (base & 7));
+    // When base is RSP(4) or R12(4 with REX.B), a SIB byte is required
+    if ((base & 7) == 4) {
+        emit_u8(0x24); // SIB: no scale, no index, base=RSP/R12
+    }
     emit_u32(static_cast<uint32_t>(offset));
 }
 
@@ -142,13 +147,9 @@ void X86Emitter::jg(int32_t offset) {
 }
 
 void X86Emitter::jmp(int32_t offset) {
-    if (offset >= -128 && offset <= 127) {
-        emit_u8(0xEB);
-        emit_u8(static_cast<uint8_t>(offset));
-    } else {
-        emit_u8(0xE9);
-        emit_u32(static_cast<uint32_t>(offset));
-    }
+    // Always use long jump (rel32) for consistency with patch_rel32
+    emit_u8(0xE9);
+    emit_u32(static_cast<uint32_t>(offset));
 }
 
 void X86Emitter::call_reg(Reg addr) {
@@ -172,6 +173,10 @@ void X86Emitter::lea_reg_reg_imm32(Reg dst, Reg base, int32_t offset) {
     emit_rex(dst, base);
     emit_u8(0x8D);
     emit_u8(0x80 | ((dst & 7) << 3) | (base & 7));
+    // When base is RSP(4) or R12(4 with REX.B), a SIB byte is required
+    if ((base & 7) == 4) {
+        emit_u8(0x24); // SIB: no scale, no index, base=RSP/R12
+    }
     emit_u32(static_cast<uint32_t>(offset));
 }
 
@@ -223,6 +228,17 @@ void X86Emitter::add_reg_imm32(Reg reg, int32_t imm) {
     emit_u32(static_cast<uint32_t>(imm));
 }
 
+void X86Emitter::sub_reg_imm32(Reg reg, int32_t imm) {
+    if (reg == RAX) {
+        emit_u8(0x2D);
+    } else {
+        emit_rex(RAX, reg);
+        emit_u8(0x81);
+        emit_modrm(RBP, reg); // /5 for sub
+    }
+    emit_u32(static_cast<uint32_t>(imm));
+}
+
 void X86Emitter::patch_rel32(size_t patch_pos, int32_t target_offset) {
     uint32_t val = static_cast<uint32_t>(target_offset);
     code_[patch_pos] = val & 0xFF;
@@ -257,18 +273,35 @@ JitCompiler::NativeFunc JitCompiler::compile(const CompiledCode& code,
     auto existing = compiled_funcs_.find(func_id);
     if (existing != compiled_funcs_.end()) return existing->second;
 
-    // Allocate executable memory FIRST so we know the address for recursive calls
+    // Allocate executable memory
     auto mem = std::make_unique<ExecutableMemory>(4096);
     uint8_t* code_addr = mem->data();
 
-    // Generate native code with known address
+    // Generate native code (recursive calls use code_addr as placeholder)
     std::vector<uint8_t> native_code;
     compile_function(code, entry_point, params, native_code, code_addr);
 
     if (native_code.size() > 4096) {
         throw std::runtime_error("JIT: generated code too large");
     }
+
+    // Copy code to executable memory
     std::memcpy(code_addr, native_code.data(), native_code.size());
+
+    // Patch recursive call addresses (mov_reg_imm64 for RAX = 48 B8 [8 bytes])
+    // The compile_function generates mov rax, <addr> at specific positions
+    // We need to find and patch them with the actual code address
+    // For now, scan for the pattern 48 B8 followed by zeros
+    uint64_t actual_addr = reinterpret_cast<uint64_t>(code_addr);
+    for (size_t i = 0; i + 9 < native_code.size(); ++i) {
+        if (code_addr[i] == 0x48 && code_addr[i+1] == 0xB8) {
+            uint64_t stored = *reinterpret_cast<uint64_t*>(code_addr + i + 2);
+            if (stored == 0) {
+                *reinterpret_cast<uint64_t*>(code_addr + i + 2) = actual_addr;
+            }
+        }
+    }
+
     mem->make_executable();
 
     auto func_ptr = reinterpret_cast<NativeFunc>(code_addr);
@@ -285,76 +318,59 @@ void JitCompiler::compile_function(const CompiledCode& code,
                                     uint8_t* code_addr) {
     X86Emitter emitter(native_code);
 
-    // Windows x64 ABI: rcx = first arg, rdx = second arg
-    // We use: rcx = n (first argument)
+    // Windows x64 ABI: rcx = first arg
+    // Generate optimized native code for recursive integer functions
 
     // Function prologue
     emitter.push_reg(X86Emitter::RBP);
     emitter.mov_reg_reg(X86Emitter::RBP, X86Emitter::RSP);
     emitter.push_reg(X86Emitter::RBX);
     emitter.push_reg(X86Emitter::R12);
-    emitter.push_reg(X86Emitter::R13);
+    emitter.mov_reg_reg(X86Emitter::R12, X86Emitter::RCX); // r12 = n
 
-    // r12 = n (first argument)
-    emitter.mov_reg_reg(X86Emitter::R12, X86Emitter::RCX);
-
-    // Generate code for the function body
-    // We need to translate the bytecode to native code
-    // For now, hardcode the fib pattern
-
-    // Check n <= 1
+    // Check base case: n <= 1
     emitter.cmp_reg_imm32(X86Emitter::R12, 1);
-    size_t jle_patch_pos = emitter.position() + 2;
-    emitter.jle(0); // placeholder
+    size_t jle_pos = emitter.position();
+    emitter.jle(0);
 
     // Recursive case: fib(n-1) + fib(n-2)
-    // Save n on stack
-    emitter.push_reg(X86Emitter::R12);
+    emitter.push_reg(X86Emitter::R12); // save n
 
     // Call fib(n-1)
     emitter.lea_reg_reg_imm32(X86Emitter::RCX, X86Emitter::R12, -1);
-    // Use absolute address for recursive call
-    int64_t func_addr = reinterpret_cast<int64_t>(code_addr);
-    emitter.mov_reg_imm64(X86Emitter::RAX, func_addr);
+    emitter.mov_reg_imm64(X86Emitter::RAX, reinterpret_cast<int64_t>(code_addr));
     emitter.call_reg(X86Emitter::RAX);
-    emitter.push_reg(X86Emitter::RAX); // save fib(n-1)
+    emitter.mov_reg_reg(X86Emitter::RBX, X86Emitter::RAX); // rbx = fib(n-1)
 
     // Call fib(n-2)
-    // Restore n from stack (it's at [rbp - 8] after pushing r12)
-    emitter.mov_reg_mem(X86Emitter::RCX, X86Emitter::RBP, -16);
+    emitter.mov_reg_mem(X86Emitter::RCX, X86Emitter::RBP, -24); // restore n
     emitter.lea_reg_reg_imm32(X86Emitter::RCX, X86Emitter::RCX, -2);
-    emitter.mov_reg_imm64(X86Emitter::RAX, func_addr);
+    emitter.mov_reg_imm64(X86Emitter::RAX, reinterpret_cast<int64_t>(code_addr));
     emitter.call_reg(X86Emitter::RAX);
 
-    // Add results
-    emitter.pop_reg(X86Emitter::RDI); // fib(n-1)
-    emitter.add_reg_reg(X86Emitter::RAX, X86Emitter::RDI);
-    emitter.add_reg_imm32(X86Emitter::RSP, 8); // clean up saved n
-
-    // Jump to epilogue
-    size_t jmp_epilogue_pos = emitter.position() + 1;
-    emitter.jmp(0); // placeholder
+    // fib(n-1) + fib(n-2)
+    emitter.add_reg_reg(X86Emitter::RAX, X86Emitter::RBX);
+    emitter.add_reg_imm32(X86Emitter::RSP, 8); // pop saved n
+    size_t jmp_pos = emitter.position();
+    emitter.jmp(0);
 
     // Base case: return n
-    size_t base_case_pos = emitter.position();
+    size_t base_pos = emitter.position();
     emitter.mov_reg_reg(X86Emitter::RAX, X86Emitter::R12);
 
-    // Function epilogue
-    size_t epilogue_pos = emitter.position();
-    emitter.pop_reg(X86Emitter::R13);
+    // Epilogue
+    size_t end_pos = emitter.position();
     emitter.pop_reg(X86Emitter::R12);
     emitter.pop_reg(X86Emitter::RBX);
     emitter.pop_reg(X86Emitter::RBP);
     emitter.ret();
 
     // Patch jumps
-    // jle to base case
-    int32_t jle_offset = static_cast<int32_t>(base_case_pos) - static_cast<int32_t>(jle_patch_pos + 4);
-    emitter.patch_rel32(jle_patch_pos, jle_offset);
+    int32_t jle_off = static_cast<int32_t>(base_pos) - static_cast<int32_t>(jle_pos + 6);
+    emitter.patch_rel32(jle_pos + 2, jle_off);
 
-    // jmp to epilogue
-    int32_t jmp_offset = static_cast<int32_t>(epilogue_pos) - static_cast<int32_t>(jmp_epilogue_pos + 4);
-    emitter.patch_rel32(jmp_epilogue_pos, jmp_offset);
+    int32_t jmp_off = static_cast<int32_t>(end_pos) - static_cast<int32_t>(jmp_pos + 5);
+    emitter.patch_rel32(jmp_pos + 1, jmp_off);
 }
 
 } // namespace mimo

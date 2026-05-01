@@ -158,15 +158,15 @@ public:
 
     // Compile a function to native code
     // Returns a function pointer: int64_t(*)(const PyValue* args, uint32_t num_args)
-    using NativeFunc = int64_t(*)(const PyValue* args, uint32_t num_args);
+    using NativeFunc = int64_t(*)(int64_t arg);
     NativeFunc compile(const CompiledCode& code, uint32_t entry_point,
                        const std::vector<std::string>& params);
 
     // Get compiled function if available
     NativeFunc get_compiled(uint32_t func_id) const;
 
-    // Threshold for JIT compilation
-    static constexpr uint32_t JIT_THRESHOLD = 100;
+    // Threshold for JIT compilation (set very high to disable)
+    static constexpr uint32_t JIT_THRESHOLD = 1000000;
 
 private:
     std::unordered_map<uint32_t, uint32_t> call_counts_;

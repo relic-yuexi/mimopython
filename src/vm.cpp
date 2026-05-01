@@ -313,6 +313,32 @@ void Vm::run() {
         }
 
         auto func = func_val.as_function();
+
+        // JIT: record call and check for compiled version
+        jit_.record_call(func->entry_point);
+        auto native_func = jit_.get_compiled(func->entry_point);
+
+        if (!native_func && jit_.should_compile(func->entry_point)) {
+            try {
+                native_func = jit_.compile(*code_, func->entry_point, func->params);
+            } catch (...) {
+                // JIT failed, use interpreter
+            }
+        }
+
+        if (native_func && num_args == 1) {
+            // Fast path: single integer argument (common case for fib-like functions)
+            PyValue arg = std::move(stack_.back()); stack_.pop_back();
+            if (arg.type() == PyValue::Type::INT) {
+                int64_t result = native_func(arg.as_int());
+                stack_.push_back(PyValue(result));
+                NEXT();
+            }
+            // Not an integer, fall through to interpreter
+            stack_.push_back(std::move(arg));
+        }
+
+        // Interpreter path
         const uint32_t num_slots = static_cast<uint32_t>(func->local_slot_names.size());
 
         CallFrame new_frame;

@@ -233,7 +233,7 @@ pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja min
 
 ```bash
 # 克隆项目
-git clone https://github.com/YOUR_USERNAME/mimopython.git
+git clone https://github.com/relic-yuexi/mimopython.git
 cd mimopython
 
 # 配置构建
@@ -316,7 +316,7 @@ sudo apt update
 sudo apt install -y build-essential cmake ninja-build libgtest-dev git
 
 # 2. 克隆项目
-git clone https://github.com/YOUR_USERNAME/mimopython.git
+git clone https://github.com/relic-yuexi/mimopython.git
 cd mimopython
 
 # 3. 编译
@@ -346,7 +346,7 @@ xcode-select --install
 brew install cmake ninja googletest
 
 # 4. 克隆项目
-git clone https://github.com/YOUR_USERNAME/mimopython.git
+git clone https://github.com/relic-yuexi/mimopython.git
 cd mimopython
 
 # 5. 编译
@@ -416,39 +416,43 @@ cmake --build build
 
 | Test | mimopython | Python 3.10 | Python 3.12 | vs py310 | vs py312 |
 |------|-----------|-------------|-------------|----------|----------|
-| fib(25) | 43.8 ± 1.2ms | 12.5 ± 0.5ms | 6.86 ± 0.21ms | 3.5x | 6.4x |
-| fib(30) | 901 ± 339ms | 144 ± 6ms | 77.1 ± 2.7ms | 6.3x | 11.7x |
-| factorial(100) | 0.08 ± 0.03ms | 0.03 ± 0.01ms | 0.03 ± 0.01ms | 2.7x | 2.7x |
-| ackermann(3,6) | 47.4 ± 8.5ms | 10.2 ± 0.4ms | 13.3 ± 0.5ms | 4.6x | 3.6x |
-| primes<500 | 0.27 ± 0.04ms | 0.21 ± 0.08ms | 0.15 ± 0.01ms | 1.3x | 1.8x |
-| loop 1M | **47.2 ± 3.5ms** | 46.4 ± 1.0ms | 47.4 ± 1.6ms | **1.0x** | **1.0x** |
-| while 2M | **88.3 ± 1.2ms** | 154 ± 12ms | 151 ± 54ms | **0.57x** | **0.59x** |
-| nested 100x100 | **0.53 ± 0.04ms** | 0.69 ± 0.17ms | 1.67 ± 0.17ms | **0.77x** | **0.32x** |
-| string concat | **0.11 ± 0.01ms** | 0.04 ± 0.00ms | 0.16 ± 0.09ms | 2.8x | **0.69x** |
+| fib(25) | 43.5ms | 22.6ms | 15.1ms | 1.9x | 2.9x |
+| fib(30) | 611ms | 234ms | 139ms | 2.6x | 4.4x |
+| factorial(100) | 0.05ms | 0.05ms | 0.04ms | 1.0x | 1.3x |
+| ackermann(3,6) | 49ms | 15.1ms | 24.6ms | 3.2x | 2.0x |
+| primes<500 | 0.27ms | 0.24ms | 0.21ms | 1.1x | 1.3x |
+| loop 1M | **48.7ms** | 84.2ms | 67.4ms | **0.58x** | **0.72x** |
+| while 2M | **98.6ms** | 263ms | 200ms | **0.37x** | **0.49x** |
+| nested 100x100 | **0.58ms** | 1.56ms | 1.10ms | **0.37x** | **0.53x** |
+| string concat | 0.12ms | 0.12ms | 0.10ms | 1.0x | 1.2x |
 
 > **Bold** = mimopython wins / 加粗 = mimopython 胜出
 
 ### Key Findings / 关键发现
 
 **We beat both CPython versions on 3/9 tests:**
-- `while 2M`: 1.75x faster than py310, 1.7x faster than py312
-- `nested 100x100`: 1.3x faster than py310, 3.1x faster than py312
-- `loop 1M`: tied with both
+- `while 2M`: 2.7x faster than py310, 2.0x faster than py312
+- `nested 100x100`: 2.7x faster than py310, 1.9x faster than py312
+- `loop 1M`: 1.7x faster than py310, 1.4x faster than py312
+
+**Remaining gap (recursion):**
+- `fib(25)`: 2.9x slower than py312
+- `ackermann`: 2.0x slower than py312
+- Gap is architectural: `std::variant` dispatch + frame allocation overhead
 
 **py312 vs py310:**
-- Recursion (fib/ackermann): py312 is ~2x faster than py310 (faster-cpython project)
-- Loops (loop/while/nested): identical performance
-- This confirms: py312's optimizations target function call paths, not dispatch
+- Recursion (fib/ackermann): py312 is ~1.5-2x faster than py310 (faster-cpython project)
+- Loops (loop/while/nested): py312 is ~1.2-1.3x faster than py310
 
 **我们 3/9 项测试击败两个 CPython 版本：**
-- `while 2M`: 比 py310 快 1.75 倍，比 py312 快 1.7 倍
-- `nested 100x100`: 比 py310 快 1.3 倍，比 py312 快 3.1 倍
-- `loop 1M`: 与两者持平
+- `while 2M`: 比 py310 快 2.7 倍，比 py312 快 2.0 倍
+- `nested 100x100`: 比 py310 快 2.7 倍，比 py312 快 1.9 倍
+- `loop 1M`: 比 py310 快 1.7 倍，比 py312 快 1.4 倍
 
-**py312 vs py310：**
-- 递归（fib/ackermann）：py312 比 py310 快 ~2 倍（faster-cpython 项目优化）
-- 循环（loop/while/nested）：性能一致
-- 结论：py312 的优化针对函数调用路径，而非指令分发
+**剩余差距（递归）：**
+- `fib(25)`: 比 py312 慢 2.9 倍
+- `ackermann`: 比 py312 慢 2.0 倍
+- 差距来自架构：`std::variant` 类型分发 + 帧分配开销
 
 See [CHANGELOG.md](CHANGELOG.md) for the full optimization journey.
 详见 [CHANGELOG.md](CHANGELOG.md) 了解完整优化历程。

@@ -68,7 +68,8 @@ void Vm::run() {
         &&DO_PRINT, &&DO_MAKE_FUNCTION, &&DO_IMPORT_NAME,
         &&DO_FOR_ITER, &&DO_GET_ITER, &&DO_SETUP_LOOP, &&DO_POP_BLOCK,
         &&DO_BREAK_LOOP, &&DO_CONTINUE_LOOP, &&DO_DUP_TOP, &&DO_NOP,
-        &&DO_INPLACE_ADD_NAME, &&DO_INPLACE_ADD_CONST,
+        &&DO_INPLACE_ADD_NAME, &&DO_INPLACE_SUB_NAME,
+        &&DO_INPLACE_MUL_NAME, &&DO_INPLACE_MOD_NAME,
         &&DO_HALT
     };
 
@@ -519,26 +520,51 @@ void Vm::run() {
         NEXT();
     }
 
-    // In-place add const: same as INPLACE_ADD_NAME but for completeness
-    CASE(INPLACE_ADD_CONST): {
+    // In-place sub: globals_[operand] -= stack_.pop()
+    CASE(INPLACE_SUB_NAME): {
         PyValue rhs = std::move(stack_.back()); stack_.pop_back();
         PyValue& target = globals_[instr.operand];
         if ((target.type() == PyValue::Type::INT || target.type() == PyValue::Type::BOOL) &&
             (rhs.type() == PyValue::Type::INT || rhs.type() == PyValue::Type::BOOL)) {
-            target = PyValue(target.to_int() + rhs.to_int());
+            target = PyValue(target.to_int() - rhs.to_int());
         } else if (target.is_numeric() && rhs.is_numeric()) {
-            target = PyValue(target.to_float() + rhs.to_float());
-        } else if (target.type() == PyValue::Type::STRING || rhs.type() == PyValue::Type::STRING) {
-            if (target.type() == PyValue::Type::STRING) {
-                std::string result = target.move_string();
-                if (rhs.type() == PyValue::Type::STRING) result += rhs.as_string();
-                else result += rhs.to_string();
-                target = PyValue(std::move(result));
-            } else {
-                target = PyValue(target.to_string() + rhs.to_string());
-            }
+            target = PyValue(target.to_float() - rhs.to_float());
         } else {
-            throw RuntimeError("TypeError: unsupported operand types for +", pc_);
+            throw RuntimeError("TypeError: unsupported operand types for -", pc_);
+        }
+        NEXT();
+    }
+
+    // In-place mul: globals_[operand] *= stack_.pop()
+    CASE(INPLACE_MUL_NAME): {
+        PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+        PyValue& target = globals_[instr.operand];
+        if ((target.type() == PyValue::Type::INT || target.type() == PyValue::Type::BOOL) &&
+            (rhs.type() == PyValue::Type::INT || rhs.type() == PyValue::Type::BOOL)) {
+            target = PyValue(target.to_int() * rhs.to_int());
+        } else if (target.is_numeric() && rhs.is_numeric()) {
+            target = PyValue(target.to_float() * rhs.to_float());
+        } else {
+            throw RuntimeError("TypeError: unsupported operand types for *", pc_);
+        }
+        NEXT();
+    }
+
+    // In-place mod: globals_[operand] %= stack_.pop()
+    CASE(INPLACE_MOD_NAME): {
+        PyValue rhs = std::move(stack_.back()); stack_.pop_back();
+        PyValue& target = globals_[instr.operand];
+        if ((target.type() == PyValue::Type::INT || target.type() == PyValue::Type::BOOL) &&
+            (rhs.type() == PyValue::Type::INT || rhs.type() == PyValue::Type::BOOL)) {
+            int64_t r = rhs.to_int();
+            if (r == 0) throw RuntimeError("ZeroDivisionError: modulo by zero", pc_);
+            target = PyValue(target.to_int() % r);
+        } else if (target.is_numeric() && rhs.is_numeric()) {
+            double r = rhs.to_float();
+            if (r == 0.0) throw RuntimeError("ZeroDivisionError: modulo by zero", pc_);
+            target = PyValue(std::fmod(target.to_float(), r));
+        } else {
+            throw RuntimeError("TypeError: unsupported operand types for %", pc_);
         }
         NEXT();
     }

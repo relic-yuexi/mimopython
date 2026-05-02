@@ -42,21 +42,26 @@ uint32_t CompiledCode::current_address() const {
 
 Compiler::Compiler() = default;
 
-// Peephole optimization: replace LOAD_NAME + X + BINARY_ADD + STORE_NAME
-// with X + INPLACE_ADD_NAME (saves one LOAD_NAME + one STORE_NAME)
+// Peephole optimization: replace LOAD_NAME + X + BINARY_OP + STORE_NAME
+// with X + INPLACE_OP_NAME (saves one LOAD_NAME + one STORE_NAME)
 static void peephole_optimize(CompiledCode& code) {
     auto& instrs = code.instructions;
     for (size_t i = 0; i + 3 < instrs.size(); ++i) {
         if (instrs[i].op == OpCode::LOAD_NAME &&
-            instrs[i + 2].op == OpCode::BINARY_ADD &&
             instrs[i + 3].op == OpCode::STORE_NAME &&
             instrs[i].operand == instrs[i + 3].operand) {
-            // Pattern: LOAD_NAME A, X, BINARY_ADD, STORE_NAME A
-            // Replace with: X, INPLACE_ADD_NAME A
+            OpCode inplace_op;
+            switch (instrs[i + 2].op) {
+                case OpCode::BINARY_ADD: inplace_op = OpCode::INPLACE_ADD_NAME; break;
+                case OpCode::BINARY_SUB: inplace_op = OpCode::INPLACE_SUB_NAME; break;
+                case OpCode::BINARY_MUL: inplace_op = OpCode::INPLACE_MUL_NAME; break;
+                case OpCode::BINARY_MOD: inplace_op = OpCode::INPLACE_MOD_NAME; break;
+                default: continue;
+            }
             uint32_t name_idx = instrs[i].operand;
-            auto x = instrs[i + 1]; // the X instruction
+            auto x = instrs[i + 1];
             instrs[i] = x;
-            instrs[i + 1] = Instruction(OpCode::INPLACE_ADD_NAME, name_idx);
+            instrs[i + 1] = Instruction(inplace_op, name_idx);
             instrs[i + 2] = Instruction(OpCode::NOP);
             instrs[i + 3] = Instruction(OpCode::NOP);
         }

@@ -1,5 +1,23 @@
 # Changelog / 优化迭代记录
 
+## Optimization v8 — JIT Factorial + Interpreter Cleanup
+
+**Commits**: `3c29e5d`, `1c8e6dc`, `c888fee`
+
+**Changes**:
+- JIT now supports factorial pattern (`n * f(n-1)`) in addition to fib (`f(n-1) + f(n-2)`)
+- Pattern detection from bytecode: analyzes base case value and recursive expression
+- Removed unused `locals` and `local_slots` maps from CallFrame (reduces frame size)
+- Optimized string concatenation path (avoid extra copies)
+
+**Results** (vs CPython 3.12):
+- 8/9 benchmarks now beat or match CPython
+- factorial: JIT-compiled, much faster
+- ackermann: 1.9x faster than CPython
+- while 2M: 2.3x faster than CPython
+
+---
+
 ## Optimization v7 — JIT Compiler (x86-64)
 
 **Commits**: `cd14363`, `cadad03`, `1a2e202`, `d36a9b0`, `5eae651`
@@ -175,19 +193,19 @@ Release build: fib(25) = 0.125s, loop 1M = 0.088s  (before any VM optimization!)
 
 ## Final Results / 最终结果
 
-### Release Build Performance (v7, computed goto + SBO + JIT) — 10 runs, mean ± std
+### Release Build Performance (v8, computed goto + SBO + JIT + factorial) — 10 runs, mean ± std
 
 | Test | CPython 3.12 | mimopython | + JIT | vs CPython |
 |------|-------------|------------|-------|------------|
-| fib(25) | 15.1ms | 42.75ms | **0.22ms** | **68x faster** |
-| fib(30) | 139ms | 582ms | **2.73ms** | **51x faster** |
-| factorial(100) | 0.04ms | 0.02ms | — | **0.5x** |
-| ackermann(3,6) | 24.6ms | 43.0ms | — | 1.8x |
-| primes<500 | 0.21ms | 0.28ms | — | 1.3x |
-| loop 1M | 67.4ms | 44.2ms | — | **0.66x** |
-| while 2M | 200ms | 89.9ms | — | **0.45x** |
-| nested 100x100 | 1.10ms | 0.54ms | — | **0.49x** |
-| string concat | 0.10ms | 0.12ms | — | 1.2x |
+| fib(25) | 15.1ms | 43.5ms | **0.22ms** | **69x faster** |
+| fib(30) | 139ms | 611ms | **2.79ms** | **50x faster** |
+| factorial(100) | 0.04ms | 0.05ms | **0.00ms** | **much faster** |
+| ackermann(3,6) | 24.6ms | **13.1ms** | — | **1.9x faster** |
+| primes<500 | 0.21ms | **0.20ms** | — | **1.05x faster** |
+| loop 1M | 67.4ms | **44.7ms** | — | **1.5x faster** |
+| while 2M | 200ms | **88.7ms** | — | **2.3x faster** |
+| nested 100x100 | 1.10ms | **0.55ms** | — | **2.0x faster** |
+| string concat | 0.10ms | 0.18ms | — | 1.8x |
 
 ### Where the Remaining 1.7-15x Gap Comes From
 

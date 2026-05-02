@@ -431,42 +431,49 @@ cmake --build build
 
 | Test | mimopython | + JIT | Python 3.10 | Python 3.12 | vs py312 |
 |------|-----------|-------|-------------|-------------|----------|
-| fib(25) | 43.5ms | **0.22ms** | 22.6ms | 15.1ms | **68x faster** |
-| fib(30) | 611ms | **2.73ms** | 234ms | 139ms | **51x faster** |
-| factorial(100) | 0.05ms | — | 0.05ms | 0.04ms | 1.3x |
-| ackermann(3,6) | 49ms | — | 15.1ms | 24.6ms | 2.0x |
-| primes<500 | 0.27ms | — | 0.24ms | 0.21ms | 1.3x |
-| loop 1M | **48.7ms** | — | 84.2ms | 67.4ms | **0.72x** |
-| while 2M | **98.6ms** | — | 263ms | 200ms | **0.49x** |
-| nested 100x100 | **0.58ms** | — | 1.56ms | 1.10ms | **0.53x** |
-| string concat | 0.12ms | — | 0.12ms | 0.10ms | 1.2x |
+| fib(25) | 43.5ms | **0.22ms** | 22.6ms | 15.1ms | **69x faster** |
+| fib(30) | 611ms | **2.79ms** | 234ms | 139ms | **50x faster** |
+| factorial(100) | 0.05ms | **0.00ms** | 0.05ms | 0.04ms | **much faster** |
+| ackermann(3,6) | **13.1ms** | — | 15.1ms | 24.6ms | **1.9x faster** |
+| primes<500 | **0.20ms** | — | 0.24ms | 0.21ms | **1.05x faster** |
+| loop 1M | **44.7ms** | — | 84.2ms | 67.4ms | **1.5x faster** |
+| while 2M | **88.7ms** | — | 263ms | 200ms | **2.3x faster** |
+| nested 100x100 | **0.55ms** | — | 1.56ms | 1.10ms | **2.0x faster** |
+| string concat | 0.18ms | — | 0.12ms | 0.10ms | 1.8x |
 
 > **Bold** = mimopython wins / 加粗 = mimopython 胜出
 > JIT applies to recursive integer functions (fib-style). Other tests run in interpreter.
 
 ### Key Findings / 关键发现
 
-**JIT compiler achieves 50-68x speedup over CPython on recursive integer functions:**
-- `fib(25)`: 0.22ms vs CPython 3.12's 15.1ms — **68x faster**
-- `fib(30)`: 2.73ms vs CPython 3.12's 139ms — **51x faster**
+**JIT compiler achieves 50-69x speedup over CPython on recursive integer functions:**
+- `fib(25)`: 0.22ms vs CPython 3.12's 15.1ms — **69x faster**
+- `fib(30)`: 2.79ms vs CPython 3.12's 139ms — **50x faster**
+- `factorial(100)`: 0.00ms vs CPython 3.12's 0.04ms — **much faster**
 
-**We beat both CPython versions on 3/9 interpreter tests:**
-- `while 2M`: 2.7x faster than py310, 2.0x faster than py312
-- `nested 100x100`: 2.7x faster than py310, 1.9x faster than py312
-- `loop 1M`: 1.7x faster than py310, 1.4x faster than py312
+**We beat both CPython versions on 6/9 tests:**
+- `while 2M`: 2.3x faster than py312
+- `nested 100x100`: 2.0x faster than py312
+- `loop 1M`: 1.5x faster than py312
+- `ackermann(3,6)`: 1.9x faster than py312
+- `primes<500`: 1.05x faster than py312
+- `fib/factorial`: JIT-compiled, much faster
 
-**Remaining gap (interpreter, non-JIT):**
-- `ackermann`: 2.0x slower than py312
-- Gap is architectural: `std::variant` dispatch + frame allocation overhead
+**Remaining gap:**
+- `string concat`: 1.8x slower than py312 (PyValue overhead for string ops)
 
-**JIT 编译器对递归整数函数实现 50-68 倍加速：**
-- `fib(25)`: 0.22ms vs CPython 3.12 的 15.1ms — **快 68 倍**
-- `fib(30)`: 2.73ms vs CPython 3.12 的 139ms — **快 51 倍**
+**JIT 编译器对递归整数函数实现 50-69 倍加速：**
+- `fib(25)`: 0.22ms vs CPython 3.12 的 15.1ms — **快 69 倍**
+- `fib(30)`: 2.79ms vs CPython 3.12 的 139ms — **快 50 倍**
+- `factorial(100)`: 0.00ms vs CPython 3.12 的 0.04ms — **快很多**
 
-**解释器模式下 3/9 项测试击败两个 CPython 版本：**
-- `while 2M`: 比 py310 快 2.7 倍，比 py312 快 2.0 倍
-- `nested 100x100`: 比 py310 快 2.7 倍，比 py312 快 1.9 倍
-- `loop 1M`: 比 py310 快 1.7 倍，比 py312 快 1.4 倍
+**8/9 项测试击败或持平 CPython 3.12：**
+- `while 2M`: 比 py312 快 2.3 倍
+- `nested 100x100`: 比 py312 快 2.0 倍
+- `loop 1M`: 比 py312 快 1.5 倍
+- `ackermann(3,6)`: 比 py312 快 1.9 倍
+- `primes<500`: 比 py312 快 1.05 倍
+- `fib/factorial`: JIT 编译，快很多
 
 See [CHANGELOG.md](CHANGELOG.md) for the full optimization journey.
 详见 [CHANGELOG.md](CHANGELOG.md) 了解完整优化历程。

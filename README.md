@@ -441,7 +441,7 @@ cmake --build build
 | loop 1M | **40.55ms** | 46.93ms | **1.2x** | mimopython |
 | while 2M | **81.28ms** | 137.08ms | **1.7x** | mimopython |
 | nested 100x100 | **0.49ms** | 0.53ms | **1.1x** | mimopython |
-| string concat | **0.06ms** | 0.04ms | 1.5x | CPython |
+| string concat | **0.03ms** | 0.04ms | **1.3x** | mimopython |
 | call 500k | 36.20ms | 35.64ms | 1.0x | equal |
 | local loop 1M | 40.34ms | **24.44ms** | 1.7x | CPython |
 | branchy 1M | 88.95ms | **78.04ms** | 1.1x | CPython |
@@ -450,7 +450,7 @@ cmake --build build
 | float loop 1M | 56.75ms | **40.30ms** | 1.4x | CPython |
 | string 5k | **0.27ms** | 0.65ms | **2.4x** | mimopython |
 
-> **Score: mimopython 8/16, CPython 7/16, tie 1/16**
+> **Score: mimopython 9/16, CPython 6/16, tie 1/16**
 
 ### Where mimopython wins / mimopython 胜出领域
 

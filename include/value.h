@@ -62,6 +62,10 @@ public:
     int64_t to_int() const;
     std::string to_string() const;
 
+    // Move string out of PyValue (leaves PyValue in valid but unspecified state)
+    // Used for hot string concat paths to avoid O(n) copy
+    std::string move_string();
+
     bool truthy() const;
 
     PyValue operator+(const PyValue& rhs) const;

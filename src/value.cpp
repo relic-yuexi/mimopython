@@ -79,6 +79,10 @@ std::string PyValue::to_string() const {
     return "";
 }
 
+std::string PyValue::move_string() {
+    return std::move(std::get<std::string>(data_));
+}
+
 bool PyValue::truthy() const {
     if (is_none_) return false;
     switch (type_) {

@@ -132,8 +132,13 @@ void Vm::run() {
             lhs = PyValue(lhs.to_float() + rhs.to_float());
         } else if (lhs.type() == PyValue::Type::STRING || rhs.type() == PyValue::Type::STRING) {
             if (lhs.type() == PyValue::Type::STRING) {
-                std::string result = lhs.to_string();
-                result += rhs.to_string();
+                // Move string out of lhs to avoid O(n) copy
+                std::string result = lhs.move_string();
+                if (rhs.type() == PyValue::Type::STRING) {
+                    result += rhs.as_string();
+                } else {
+                    result += rhs.to_string();
+                }
                 lhs = PyValue(std::move(result));
             } else {
                 lhs = PyValue(lhs.to_string() + rhs.to_string());

@@ -34,13 +34,11 @@ public:
 struct CallFrame {
     uint32_t return_address = 0;
     uint32_t base_pointer = 0;
-    std::unordered_map<std::string, PyValue> locals;
     // Fast local access with small buffer optimization
     // For functions with <=4 params, avoid heap allocation
     static constexpr uint32_t INLINE_SLOTS = 4;
     PyValue inline_slots_[INLINE_SLOTS];
     std::vector<PyValue> fast_locals;  // only used if > INLINE_SLOTS
-    std::unordered_map<std::string, uint32_t> local_slots;
 
     PyValue& get_fast_local(uint32_t idx) {
         if (fast_locals.empty()) return inline_slots_[idx];

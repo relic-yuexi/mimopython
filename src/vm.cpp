@@ -131,7 +131,6 @@ void Vm::run() {
         } else if (lhs.is_numeric() && rhs.is_numeric()) {
             lhs = PyValue(lhs.to_float() + rhs.to_float());
         } else if (lhs.type() == PyValue::Type::STRING || rhs.type() == PyValue::Type::STRING) {
-            // Optimized string concat: avoid extra copies when lhs is already a string
             if (lhs.type() == PyValue::Type::STRING) {
                 std::string result = lhs.to_string();
                 result += rhs.to_string();

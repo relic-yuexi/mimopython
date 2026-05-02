@@ -1,5 +1,21 @@
 # Changelog / 优化迭代记录
 
+## Optimization v9 — INPLACE_ADD Peephole
+
+**Commit**: `98cafed`
+
+**Changes**:
+- New `INPLACE_ADD_NAME` opcode: does `globals_[operand] += stack_.pop()` in one step
+- Compiler peephole: detect `LOAD_NAME + X + BINARY_ADD + STORE_NAME` pattern
+  and replace with `X + INPLACE_ADD_NAME`, saving one LOAD_NAME + one STORE_NAME
+
+**Results**:
+- string 5k: 10.66ms → 0.27ms (**39x faster**)
+- string concat: 0.17ms → 0.06ms (**2.8x faster**)
+- Now beating CPython 3.12 on string concat!
+
+---
+
 ## Optimization v8 — JIT Factorial + Comprehensive Benchmarks
 
 **Commits**: `3c29e5d`, `1c8e6dc`, `c888fee`, `64ec161`

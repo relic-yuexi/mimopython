@@ -470,6 +470,17 @@ cmake --build build
 
 mimopython's wins are concentrated in **JIT-compiled code** and **simple loops**. For general interpreter performance, CPython is still ahead due to decades of optimization (specializing adaptive interpreter, inline caching, unboxed values, etc.).
 
+### What would close the remaining gaps / 如何缩小剩余差距
+
+| Gap | Root cause | Fix required |
+|-----|-----------|--------------|
+| String ops (15.6x) | PyValue variant dispatch + string copy on every concat | Unboxed strings or string builder |
+| Mutual recursion (6.4x) | Call frame allocation per call | Inline caching for function lookup |
+| Local loop (1.7x) | LOAD_NAME copies PyValue from globals | Inline caching, specialized opcodes |
+| Float loop (1.4x) | std::variant dispatch for float ops | Unboxed floats (nan-boxing) |
+
+These are architectural changes that would require significant refactoring. The current design prioritizes simplicity and correctness over raw speed.
+
 > **Bold** = mimopython wins / 加粗 = mimopython 胜出
 > JIT applies to recursive integer functions (fib-style). Other tests run in interpreter.
 

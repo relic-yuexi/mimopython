@@ -1,20 +1,29 @@
 # Changelog / 优化迭代记录
 
-## Optimization v8 — JIT Factorial + Interpreter Cleanup
+## Optimization v8 — JIT Factorial + Comprehensive Benchmarks
 
-**Commits**: `3c29e5d`, `1c8e6dc`, `c888fee`
+**Commits**: `3c29e5d`, `1c8e6dc`, `c888fee`, `64ec161`
 
 **Changes**:
 - JIT now supports factorial pattern (`n * f(n-1)`) in addition to fib (`f(n-1) + f(n-2)`)
 - Pattern detection from bytecode: analyzes base case value and recursive expression
 - Removed unused `locals` and `local_slots` maps from CallFrame (reduces frame size)
 - Optimized string concatenation path (avoid extra copies)
+- Added 7 new benchmarks: call overhead, local loop, branchy, linear recursion, mutual recursion, float loop, large string concat
 
-**Results** (vs CPython 3.12):
-- 8/9 benchmarks now beat or match CPython
-- factorial: JIT-compiled, much faster
-- ackermann: 1.9x faster than CPython
-- while 2M: 2.3x faster than CPython
+**Comprehensive Results** (16 benchmarks vs CPython 3.12.9):
+
+| Category | Tests | mimopython wins | CPython wins |
+|----------|-------|-----------------|--------------|
+| JIT-compiled | 3 | 3 (31x faster) | 0 |
+| Loops | 3 | 3 (1.1-1.7x) | 0 |
+| Function calls | 2 | 1 | 1 (tie) |
+| String ops | 2 | 0 | 2 (4.8-15.6x) |
+| Recursion | 2 | 0 | 2 (1.5-6.4x) |
+| Float/Branchy | 2 | 0 | 2 (1.1-1.4x) |
+| **Total** | **16** | **7** | **8 (tie 1)** |
+
+**Key insight**: mimopython wins on JIT-compiled code and simple loops. CPython wins on string ops, local variable access, float math, and general recursion due to decades of optimization (specializing adaptive interpreter, inline caching, unboxed values).
 
 ---
 

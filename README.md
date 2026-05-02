@@ -427,19 +427,48 @@ cmake --build build
 
 10 次运行取平均值，Release 构建 `-O3` + computed goto + JIT。
 
-### Three-way Comparison / 三方对比
+### Comprehensive Benchmark Comparison / 全面性能对比
 
-| Test | mimopython | + JIT | Python 3.10 | Python 3.12 | vs py312 |
-|------|-----------|-------|-------------|-------------|----------|
-| fib(25) | 43.5ms | **0.22ms** | 22.6ms | 15.1ms | **69x faster** |
-| fib(30) | 611ms | **2.79ms** | 234ms | 139ms | **50x faster** |
-| factorial(100) | 0.05ms | **0.00ms** | 0.05ms | 0.04ms | **much faster** |
-| ackermann(3,6) | **13.1ms** | — | 15.1ms | 24.6ms | **1.9x faster** |
-| primes<500 | **0.20ms** | — | 0.24ms | 0.21ms | **1.05x faster** |
-| loop 1M | **44.7ms** | — | 84.2ms | 67.4ms | **1.5x faster** |
-| while 2M | **88.7ms** | — | 263ms | 200ms | **2.3x faster** |
-| nested 100x100 | **0.55ms** | — | 1.56ms | 1.10ms | **2.0x faster** |
-| string concat | 0.18ms | — | 0.12ms | 0.10ms | 1.8x |
+16 benchmarks covering: JIT compilation, loops, recursion, function calls, string ops, float math, branching.
+
+| Test | mimopython | CPython 3.12 | Ratio | Winner |
+|------|-----------|-------------|-------|--------|
+| fib(25) | **0.22ms** | 6.91ms | **31x** | mimopython (JIT) |
+| fib(30) | **2.48ms** | 76.72ms | **31x** | mimopython (JIT) |
+| factorial(100) | **0.00ms** | 0.03ms | **much** | mimopython (JIT) |
+| ackermann(3,6) | **11.79ms** | 13.35ms | **1.1x** | mimopython |
+| primes<500 | 0.17ms | **0.15ms** | 1.1x | CPython |
+| loop 1M | **40.55ms** | 46.93ms | **1.2x** | mimopython |
+| while 2M | **81.28ms** | 137.08ms | **1.7x** | mimopython |
+| nested 100x100 | **0.49ms** | 0.53ms | **1.1x** | mimopython |
+| string concat | 0.19ms | **0.04ms** | 4.8x | CPython |
+| call 500k | 36.20ms | 35.64ms | 1.0x | equal |
+| local loop 1M | 40.34ms | **24.44ms** | 1.7x | CPython |
+| branchy 1M | 88.95ms | **78.04ms** | 1.1x | CPython |
+| linear rec 1k | 0.18ms | **0.12ms** | 1.5x | CPython |
+| mutual rec 5k | 2.80ms | **0.44ms** | 6.4x | CPython |
+| float loop 1M | 56.75ms | **40.30ms** | 1.4x | CPython |
+| string 5k | 10.17ms | **0.65ms** | 15.6x | CPython |
+
+> **Score: mimopython 7/16, CPython 8/16, tie 1/16**
+
+### Where mimopython wins / mimopython 胜出领域
+
+- **JIT-compiled functions** (fib, factorial): 31x faster — native x86-64 codegen
+- **Loop-heavy code** (while, nested, loop): 1.1-1.7x faster — computed goto dispatch
+- **ackermann**: 1.1x faster — function call overhead
+
+### Where CPython wins / CPython 胜出领域
+
+- **String ops**: 4.8-15.6x faster — PyValue overhead for string operations
+- **Local variable access**: 1.7x faster — inline caching, specialized opcodes
+- **Float ops**: 1.4x faster — unboxed floats
+- **Recursion** (linear, mutual): 1.5-6.4x faster — optimized call frames
+- **Branch-heavy code**: 1.1x faster — branch prediction, specialized opcodes
+
+### Key insight / 关键洞察
+
+mimopython's wins are concentrated in **JIT-compiled code** and **simple loops**. For general interpreter performance, CPython is still ahead due to decades of optimization (specializing adaptive interpreter, inline caching, unboxed values, etc.).
 
 > **Bold** = mimopython wins / 加粗 = mimopython 胜出
 > JIT applies to recursive integer functions (fib-style). Other tests run in interpreter.

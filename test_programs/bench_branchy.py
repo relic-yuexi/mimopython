@@ -1,0 +1,9 @@
+total = 0
+for i in range(1000000):
+    if i % 3 == 0:
+        total = total + i
+    elif i % 3 == 1:
+        total = total - i
+    else:
+        total = total + 1
+print(total)

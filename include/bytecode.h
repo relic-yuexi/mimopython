@@ -60,6 +60,14 @@ enum class OpCode : uint8_t {
     DUP_TOP,          // duplicate top of stack
     NOP,              // no operation
 
+    // In-place operations (peephole optimized)
+    // operand: index into names pool (variable name)
+    // Pops top of stack (rhs), adds to globals_[operand], stores result back
+    INPLACE_ADD_NAME,
+    // operand: index into names pool (variable name)
+    // Pops top of stack (rhs), adds to globals_[operand] using const from next instr
+    INPLACE_ADD_CONST,  // followed by LOAD_CONST with the constant index
+
     HALT              // stop execution
 };
 
@@ -108,6 +116,8 @@ inline const char* opcode_name(OpCode op) {
         case OpCode::CONTINUE_LOOP:    return "CONTINUE_LOOP";
         case OpCode::DUP_TOP:          return "DUP_TOP";
         case OpCode::NOP:              return "NOP";
+        case OpCode::INPLACE_ADD_NAME: return "INPLACE_ADD_NAME";
+        case OpCode::INPLACE_ADD_CONST: return "INPLACE_ADD_CONST";
         case OpCode::HALT:             return "HALT";
     }
     return "UNKNOWN";

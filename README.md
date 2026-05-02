@@ -441,16 +441,16 @@ cmake --build build
 | loop 1M | **40.55ms** | 46.93ms | **1.2x** | mimopython |
 | while 2M | **81.28ms** | 137.08ms | **1.7x** | mimopython |
 | nested 100x100 | **0.49ms** | 0.53ms | **1.1x** | mimopython |
-| string concat | 0.19ms | **0.04ms** | 4.8x | CPython |
+| string concat | **0.06ms** | 0.04ms | 1.5x | CPython |
 | call 500k | 36.20ms | 35.64ms | 1.0x | equal |
 | local loop 1M | 40.34ms | **24.44ms** | 1.7x | CPython |
 | branchy 1M | 88.95ms | **78.04ms** | 1.1x | CPython |
 | linear rec 1k | 0.18ms | **0.12ms** | 1.5x | CPython |
 | mutual rec 5k | 2.80ms | **0.44ms** | 6.4x | CPython |
 | float loop 1M | 56.75ms | **40.30ms** | 1.4x | CPython |
-| string 5k | 10.17ms | **0.65ms** | 15.6x | CPython |
+| string 5k | **0.27ms** | 0.65ms | **2.4x** | mimopython |
 
-> **Score: mimopython 7/16, CPython 8/16, tie 1/16**
+> **Score: mimopython 8/16, CPython 7/16, tie 1/16**
 
 ### Where mimopython wins / mimopython 胜出领域
 
@@ -460,7 +460,6 @@ cmake --build build
 
 ### Where CPython wins / CPython 胜出领域
 
-- **String ops**: 4.8-15.6x faster — PyValue overhead for string operations
 - **Local variable access**: 1.7x faster — inline caching, specialized opcodes
 - **Float ops**: 1.4x faster — unboxed floats
 - **Recursion** (linear, mutual): 1.5-6.4x faster — optimized call frames

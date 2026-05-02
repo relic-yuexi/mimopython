@@ -116,7 +116,9 @@ private:
     void compile_function(const CompiledCode& code, uint32_t entry_point,
                           const std::vector<std::string>& params,
                           std::vector<uint8_t>& native_code,
-                          uint8_t* code_addr);
+                          uint8_t* code_addr,
+                          int pattern,
+                          int64_t base_value);
 };
 
 } // namespace mimo

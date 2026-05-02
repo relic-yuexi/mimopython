@@ -231,13 +231,62 @@ JitCompiler::NativeFunc JitCompiler::get_compiled(uint32_t func_id) const {
     return it != compiled_funcs_.end() ? it->second : nullptr;
 }
 
+// Pattern types the JIT can recognize
+enum class JitPattern {
+    UNKNOWN,
+    FIB,      // if n<=1: return n; return fib(n-1) + fib(n-2)
+    FACTORIAL // if n<=1: return 1; return n * fact(n-1)
+};
+
+// Detect the recursive pattern from bytecode.
+static JitPattern detect_pattern(const CompiledCode& code, uint32_t entry_point,
+                                  int64_t& base_value) {
+    const auto& instrs = code.instructions;
+
+    // Find function end
+    uint32_t func_end = static_cast<uint32_t>(instrs.size());
+    if (entry_point > 0 && instrs[entry_point - 1].op == OpCode::JUMP_ABSOLUTE) {
+        func_end = instrs[entry_point - 1].operand;
+    }
+
+    // Check base case: look for LOAD_CONST before first RETURN_VALUE
+    // Pattern: LOAD_FAST, LOAD_CONST, COMPARE_LTE, JUMP_IF_FALSE, POP_TOP, LOAD_*, RETURN_VALUE
+    if (entry_point + 6 >= func_end) return JitPattern::UNKNOWN;
+    if (instrs[entry_point].op != OpCode::LOAD_FAST) return JitPattern::UNKNOWN;
+    if (instrs[entry_point + 1].op != OpCode::LOAD_CONST) return JitPattern::UNKNOWN;
+    if (instrs[entry_point + 2].op != OpCode::COMPARE_LTE) return JitPattern::UNKNOWN;
+    if (instrs[entry_point + 3].op != OpCode::JUMP_IF_FALSE) return JitPattern::UNKNOWN;
+    if (instrs[entry_point + 4].op != OpCode::POP_TOP) return JitPattern::UNKNOWN;
+
+    // Get base case value
+    if (instrs[entry_point + 5].op == OpCode::LOAD_FAST) {
+        base_value = -1; // sentinel: return n
+    } else if (instrs[entry_point + 5].op == OpCode::LOAD_CONST) {
+        base_value = static_cast<int64_t>(instrs[entry_point + 5].operand);
+    } else {
+        return JitPattern::UNKNOWN;
+    }
+
+    // Check recursive case: look for BINARY_ADD or BINARY_MUL
+    bool has_add = false, has_mul = false;
+    int call_count = 0;
+    for (size_t i = entry_point + 7; i < func_end; ++i) {
+        if (instrs[i].op == OpCode::CALL_FUNCTION) call_count++;
+        if (instrs[i].op == OpCode::BINARY_ADD) has_add = true;
+        if (instrs[i].op == OpCode::BINARY_MUL) has_mul = true;
+    }
+
+    if (has_add && call_count == 2) return JitPattern::FIB;
+    if (has_mul && call_count == 1) return JitPattern::FACTORIAL;
+
+    return JitPattern::UNKNOWN;
+}
+
 // Check if bytecode only uses operations the JIT can handle.
-// Currently supports: LOAD_FAST, LOAD_CONST, LOAD_NAME, COMPARE_LTE, JUMP_IF_FALSE,
-// JUMP_ABSOLUTE, RETURN_VALUE, BINARY_SUB, BINARY_ADD, CALL_FUNCTION, POP_TOP.
 static bool validate_bytecode(const CompiledCode& code, uint32_t entry_point) {
     const auto& instrs = code.instructions;
 
-    // Find function end: the JUMP_ABSOLUTE before entry_point jumps past the function body
+    // Find function end
     uint32_t func_end = static_cast<uint32_t>(instrs.size());
     if (entry_point > 0 && instrs[entry_point - 1].op == OpCode::JUMP_ABSOLUTE) {
         func_end = instrs[entry_point - 1].operand;
@@ -254,11 +303,12 @@ static bool validate_bytecode(const CompiledCode& code, uint32_t entry_point) {
             case OpCode::RETURN_VALUE:
             case OpCode::BINARY_SUB:
             case OpCode::BINARY_ADD:
+            case OpCode::BINARY_MUL:
             case OpCode::CALL_FUNCTION:
             case OpCode::POP_TOP:
                 break;
             default:
-                return false; // unsupported operation
+                return false;
         }
     }
     return true;
@@ -277,11 +327,20 @@ JitCompiler::NativeFunc JitCompiler::compile(const CompiledCode& code,
         return nullptr;
     }
 
+    // Detect the recursive pattern
+    int64_t base_value = 0;
+    JitPattern pattern = detect_pattern(code, entry_point, base_value);
+    if (pattern == JitPattern::UNKNOWN) {
+        compiled_funcs_[func_id] = nullptr;
+        return nullptr;
+    }
+
     auto mem = std::make_unique<ExecutableMemory>(4096);
     uint8_t* code_addr = mem->data();
 
     std::vector<uint8_t> native_code;
-    compile_function(code, entry_point, params, native_code, code_addr);
+    compile_function(code, entry_point, params, native_code, code_addr,
+                     static_cast<int>(pattern), base_value);
 
     if (native_code.size() > 4096) {
         throw std::runtime_error("JIT: generated code too large");
@@ -313,13 +372,12 @@ void JitCompiler::compile_function(const CompiledCode& code,
                                     uint32_t entry_point,
                                     const std::vector<std::string>& params,
                                     std::vector<uint8_t>& native_code,
-                                    uint8_t* code_addr) {
+                                    uint8_t* code_addr,
+                                    int pattern,
+                                    int64_t base_value) {
     X86Emitter emitter(native_code);
 
-    // Generate native code for recursive integer functions
-    // Pattern: if (n <= 1) return n; return f(n-1) + f(n-2);
-
-    // Prologue
+    // Prologue (same for both patterns)
     emitter.push_reg(X86Emitter::RBP);
     emitter.mov_reg_reg(X86Emitter::RBP, X86Emitter::RSP);
     emitter.push_reg(X86Emitter::RBX);
@@ -331,30 +389,51 @@ void JitCompiler::compile_function(const CompiledCode& code,
     size_t jle_pos = emitter.position();
     emitter.jle(0);
 
-    // Recursive case: f(n-1) + f(n-2)
-    emitter.push_reg(X86Emitter::R12); // save n
+    if (pattern == static_cast<int>(JitPattern::FIB)) {
+        // Recursive case: f(n-1) + f(n-2)
+        emitter.push_reg(X86Emitter::R12); // save n
 
-    // Call f(n-1)
-    emitter.lea_reg_reg_imm32(X86Emitter::RCX, X86Emitter::R12, -1);
-    emitter.mov_reg_imm64(X86Emitter::RAX, reinterpret_cast<int64_t>(code_addr));
-    emitter.call_reg(X86Emitter::RAX);
-    emitter.mov_reg_reg(X86Emitter::RBX, X86Emitter::RAX); // rbx = f(n-1)
+        // Call f(n-1)
+        emitter.lea_reg_reg_imm32(X86Emitter::RCX, X86Emitter::R12, -1);
+        emitter.mov_reg_imm64(X86Emitter::RAX, reinterpret_cast<int64_t>(code_addr));
+        emitter.call_reg(X86Emitter::RAX);
+        emitter.mov_reg_reg(X86Emitter::RBX, X86Emitter::RAX); // rbx = f(n-1)
 
-    // Call f(n-2)
-    emitter.mov_reg_mem(X86Emitter::RCX, X86Emitter::RBP, -24);
-    emitter.lea_reg_reg_imm32(X86Emitter::RCX, X86Emitter::RCX, -2);
-    emitter.mov_reg_imm64(X86Emitter::RAX, reinterpret_cast<int64_t>(code_addr));
-    emitter.call_reg(X86Emitter::RAX);
+        // Call f(n-2)
+        emitter.mov_reg_mem(X86Emitter::RCX, X86Emitter::RBP, -24);
+        emitter.lea_reg_reg_imm32(X86Emitter::RCX, X86Emitter::RCX, -2);
+        emitter.mov_reg_imm64(X86Emitter::RAX, reinterpret_cast<int64_t>(code_addr));
+        emitter.call_reg(X86Emitter::RAX);
 
-    // f(n-1) + f(n-2)
-    emitter.add_reg_reg(X86Emitter::RAX, X86Emitter::RBX);
-    emitter.add_reg_imm32(X86Emitter::RSP, 8);
+        // f(n-1) + f(n-2)
+        emitter.add_reg_reg(X86Emitter::RAX, X86Emitter::RBX);
+        emitter.add_reg_imm32(X86Emitter::RSP, 8);
+    } else {
+        // FACTORIAL: recursive case: n * f(n-1)
+        emitter.push_reg(X86Emitter::R12); // save n
+
+        // Call f(n-1)
+        emitter.lea_reg_reg_imm32(X86Emitter::RCX, X86Emitter::R12, -1);
+        emitter.mov_reg_imm64(X86Emitter::RAX, reinterpret_cast<int64_t>(code_addr));
+        emitter.call_reg(X86Emitter::RAX);
+
+        // n * f(n-1)
+        emitter.imul_reg_reg(X86Emitter::RAX, X86Emitter::R12);
+        emitter.add_reg_imm32(X86Emitter::RSP, 8);
+    }
+
     size_t jmp_pos = emitter.position();
     emitter.jmp(0);
 
-    // Base case: return n
+    // Base case
     size_t base_pos = emitter.position();
-    emitter.mov_reg_reg(X86Emitter::RAX, X86Emitter::R12);
+    if (base_value == -1) {
+        // fib: return n
+        emitter.mov_reg_reg(X86Emitter::RAX, X86Emitter::R12);
+    } else {
+        // factorial: return constant
+        emitter.mov_reg_imm64(X86Emitter::RAX, base_value);
+    }
 
     // Epilogue
     size_t end_pos = emitter.position();
